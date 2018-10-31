@@ -16,5 +16,4 @@ public enum WinterRoadTag
 
     @TagKey
     public static final String KEY = "winter_road";
-
 }
