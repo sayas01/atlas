@@ -139,6 +139,25 @@ public final class ComplexAreaOfInterest extends ComplexEntity
         }
     }
 
+    /**
+     * Collect the list of {@link TaggableFilter} from the default list, the object passes.
+     *
+     * @return a list of {@link TaggableFilter}s the object passes
+     */
+    public List<TaggableFilter> getTaggableFiltersOfObject()
+    {
+        return defaultTaggableFilter.stream().filter(taggableFilter -> taggableFilter.test(this))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * @return the default list of {@link TaggableFilter}
+     */
+    public static List<TaggableFilter> getDefaultTaggableFilter()
+    {
+        return defaultTaggableFilter;
+    }
+
     @Override
     public String toString()
     {
