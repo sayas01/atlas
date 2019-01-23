@@ -57,4 +57,15 @@ public class ComplexAreaOfInterestFinderTest
                 TaggableFilter.forDefinition("landuse->VINEYARD|amenity->SCHOOL"));
         Assert.assertEquals(3, StreamSupport.stream(complexAOIs.spliterator(), false).count());
     }
+
+    @Test
+    public void testTaggableFilterOfObject()
+    {
+        final Atlas atlas = this.rule.getAoiAreaAtlas();
+        final ComplexAreaOfInterestFinder aoiRelationFinder = new ComplexAreaOfInterestFinder();
+        final Iterable<ComplexAreaOfInterest> complexAOIAreas = aoiRelationFinder.find(atlas);
+        Assert.assertEquals(1,
+                complexAOIAreas.iterator().next().getTaggableFiltersOfObject().size());
+        Assert.assertEquals(15, ComplexAreaOfInterest.getDefaultTaggableFilter().size());
+    }
 }
