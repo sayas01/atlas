@@ -13,6 +13,8 @@ public class SegmentTest
             .wkt("LINESTRING (112.9699474 -84.7999528, 112.9699948 -84.7999669)").segments().get(0);
     private static Segment SEGMENT_SAME_END_2 = PolyLine
             .wkt("LINESTRING (112.9650809 -84.7999622, 112.9699948 -84.7999669)").segments().get(0);
+    private static final Location INTERSECTION_LOCATION = Location
+            .forString("-84.7999669,112.9699948");
 
     @Test
     public void testIntersection()
@@ -39,6 +41,14 @@ public class SegmentTest
                 SEGMENT_SAME_END_2.reversed().intersects(SEGMENT_SAME_END_1.reversed()));
         Assert.assertTrue("Same End is broken", SEGMENT_SAME_END_1.intersects(SEGMENT_SAME_END_2));
         Assert.assertTrue("Same End is broken", SEGMENT_SAME_END_2.intersects(SEGMENT_SAME_END_1));
+        Assert.assertEquals(INTERSECTION_LOCATION,
+                SEGMENT_SAME_END_1.reversed().intersection(SEGMENT_SAME_END_2.reversed()));
+        Assert.assertEquals(INTERSECTION_LOCATION,
+                SEGMENT_SAME_END_2.reversed().intersection(SEGMENT_SAME_END_1.reversed()));
+        Assert.assertEquals(INTERSECTION_LOCATION,
+                SEGMENT_SAME_END_1.intersection(SEGMENT_SAME_END_2));
+        Assert.assertEquals(INTERSECTION_LOCATION,
+                SEGMENT_SAME_END_2.intersection(SEGMENT_SAME_END_1));
     }
 
     @Test

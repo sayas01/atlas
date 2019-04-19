@@ -109,6 +109,10 @@ public class Segment extends PolyLine
      */
     public Location intersection(final Segment that)
     {
+        if (!this.intersects(that))
+        {
+            return null;
+        }
         final double p0X = this.start().getLongitude().asDegrees();
         final double p0Y = this.start().getLatitude().asDegrees();
         final double p1X = this.end().getLongitude().asDegrees();
@@ -137,6 +141,49 @@ public class Segment extends PolyLine
             // Collision detected
             return new Location(Latitude.degrees(p0Y + tValue * s1Y),
                     Longitude.degrees(p0X + tValue * s1X));
+        }
+        return this.intersectionAtStartOrEnd(that);
+    }
+
+    /**
+     * Implements the same function as Intersection, but with long to retrieve intersection point at
+     * start or end of two segments
+     *
+     * @param that
+     *            The segment to intersect
+     * @return The intersection point if any, null otherwise
+     */
+    private Location intersectionAtStartOrEnd(final Segment that)
+    {
+        final long p0X = this.start().getLongitude().asDm7();
+        final long p0Y = this.start().getLatitude().asDm7();
+        final long p1X = this.end().getLongitude().asDm7();
+        final long p1Y = this.end().getLatitude().asDm7();
+        final long p2X = that.start().getLongitude().asDm7();
+        final long p2Y = that.start().getLatitude().asDm7();
+        final long p3X = that.end().getLongitude().asDm7();
+        final long p3Y = that.end().getLatitude().asDm7();
+
+        final long s1X;
+        final long s1Y;
+        final long s2X;
+        final long s2Y;
+        s1X = p1X - p0X;
+        s1Y = p1Y - p0Y;
+        s2X = p3X - p2X;
+        s2Y = p3Y - p2Y;
+
+        final long sValue;
+        final long tValue;
+        final long commonDenominator = -s2X * s1Y + s1X * s2Y;
+        sValue = (-s1Y * (p0X - p2X) + s1X * (p0Y - p2Y)) / commonDenominator;
+        tValue = (s2X * (p0Y - p2Y) - s2Y * (p0X - p2X)) / commonDenominator;
+
+        if (sValue >= 0 && sValue <= 1 && tValue >= 0 && tValue <= 1)
+        {
+            // Collision detected
+            return new Location(Latitude.dm7(p0Y + tValue * s1Y),
+                    Longitude.dm7(p0X + tValue * s1X));
         }
         // No collision
         return null;
@@ -425,5 +472,20 @@ public class Segment extends PolyLine
     protected long longitudeSpan()
     {
         return this.end().getLongitude().asDm7() - this.start().getLongitude().asDm7();
+    }
+
+    public static void main(String[] args)
+    {
+
+        final Location location1Start = Location.forString("25.9715167 48.8073374");
+        final Location location1End = Location.forString("25.9716052 48.8078089");
+        final Segment segment1 = new Segment(location1Start, location1End);
+
+        final Location location2Start = Location.forString("25.9715307 48.8078268");
+        final Location location2End = Location.forString("25.9716052 48.8078089");
+        final Segment segment2 = new Segment(location2Start, location2End);
+
+        System.out.println(segment1.intersects(segment2));
+
     }
 }
