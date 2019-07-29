@@ -107,12 +107,8 @@ public class Segment extends PolyLine
      * @return The intersection point if any, null otherwise
      * @see "http://stackoverflow.com/a/1968345/1558687"
      */
-    public Location intersection(final Segment that)
+    private Location intersectionUsingDouble(final Segment that)
     {
-        if (!this.intersects(that))
-        {
-            return null;
-        }
         final double p0X = this.start().getLongitude().asDegrees();
         final double p0Y = this.start().getLatitude().asDegrees();
         final double p1X = this.end().getLongitude().asDegrees();
@@ -133,8 +129,9 @@ public class Segment extends PolyLine
 
         final double sValue;
         final double tValue;
-        sValue = (-s1Y * (p0X - p2X) + s1X * (p0Y - p2Y)) / (-s2X * s1Y + s1X * s2Y);
-        tValue = (s2X * (p0Y - p2Y) - s2Y * (p0X - p2X)) / (-s2X * s1Y + s1X * s2Y);
+        final double commonDenominator = -s2X * s1Y + s1X * s2Y;
+        sValue = (-s1Y * (p0X - p2X) + s1X * (p0Y - p2Y)) / commonDenominator;
+        tValue = (s2X * (p0Y - p2Y) - s2Y * (p0X - p2X)) / commonDenominator;
 
         if (sValue >= 0 && sValue <= 1 && tValue >= 0 && tValue <= 1)
         {
@@ -142,7 +139,7 @@ public class Segment extends PolyLine
             return new Location(Latitude.degrees(p0Y + tValue * s1Y),
                     Longitude.degrees(p0X + tValue * s1X));
         }
-        return this.intersectionAtEnd(that);
+        return null;
     }
 
     /**
@@ -152,7 +149,7 @@ public class Segment extends PolyLine
      *            The segment to intersect
      * @return The intersection point if any, null otherwise
      */
-    private Location intersectionAtEnd(final Segment that)
+    public Location intersection(final Segment that)
     {
         final long p0X = this.start().getLongitude().asDm7();
         final long p0Y = this.start().getLatitude().asDm7();
@@ -169,11 +166,16 @@ public class Segment extends PolyLine
         final long commonDenominator = -s2X * s1Y + s1X * s2Y;
         final long sValue = (-s1Y * (p0X - p2X) + s1X * (p0Y - p2Y)) / commonDenominator;
         final long tValue = (s2X * (p0Y - p2Y) - s2Y * (p0X - p2X)) / commonDenominator;
-
+        // Checks for intersection
         if (sValue >= 0 && sValue <= 1 && tValue >= 0 && tValue <= 1)
         {
-            // Collision detected
-            return new Location(Latitude.dm7(p0Y + tValue * s1Y),
+            // Intersections that occur at points other than end points are more accurate using
+            // double and degrees calculations
+            final Location intersectionLocationUsingDouble = this.intersectionUsingDouble(that);
+            // Collision detected. If intersection calculated using double is null,intersection is at end point and so,
+            // return the location calculated using long and dm7.
+            return intersectionLocationUsingDouble != null? intersectionLocationUsingDouble :
+                    new Location(Latitude.dm7(p0Y + tValue * s1Y),
                     Longitude.dm7(p0X + tValue * s1X));
         }
         // No collision

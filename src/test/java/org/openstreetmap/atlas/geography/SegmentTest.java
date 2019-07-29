@@ -19,17 +19,16 @@ public class SegmentTest
     @Test
     public void testIntersection()
     {
-        Assert.assertEquals(null, new Segment(Location.TEST_1, Location.TEST_2)
+        Assert.assertNull(new Segment(Location.TEST_1, Location.TEST_2)
                 .intersection(new Segment(Location.TEST_4, Location.TEST_3)));
-        Assert.assertEquals(false, new Segment(Location.TEST_1, Location.TEST_2)
+        Assert.assertFalse(new Segment(Location.TEST_1, Location.TEST_2)
                 .intersects(new Segment(Location.TEST_4, Location.TEST_3)));
-
+        Assert.assertTrue(new Segment(Location.TEST_1, Location.TEST_3)
+                .intersects(new Segment(Location.TEST_4, Location.TEST_2)));
         Assert.assertEquals(
                 new Location(Latitude.degrees(37.3273389), Longitude.degrees(-122.0287109)),
-                new Segment(Location.TEST_1, Location.TEST_3)
+                new Segment(new Location(Latitude.degrees(37.3273389), Longitude.degrees(-122.0287109)), Location.TEST_3)
                         .intersection(new Segment(Location.TEST_4, Location.TEST_2)));
-        Assert.assertEquals(true, new Segment(Location.TEST_1, Location.TEST_3)
-                .intersects(new Segment(Location.TEST_4, Location.TEST_2)));
     }
 
     @Test
@@ -63,6 +62,7 @@ public class SegmentTest
 
         Assert.assertTrue("Overflow issue", maxXandYMovement.intersects(maxXandNegativeYMovement));
         Assert.assertTrue("Overflow issue", maxXandNegativeYMovement.intersects(maxXandYMovement));
-
+        Assert.assertNull(maxXandYMovement.intersection(maxXandNegativeYMovement));
+        Assert.assertNull(maxXandNegativeYMovement.intersection(maxXandYMovement));
     }
 }
