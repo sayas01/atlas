@@ -23,24 +23,7 @@ public enum CompleteItemType
 
     private final Class<? extends CompleteEntity> completeEntityClass;
 
-    private ItemType itemType;
-
-    CompleteItemType(final Class<? extends CompleteEntity> completeEntityClass,
-            final ItemType itemType)
-    {
-        this.completeEntityClass = completeEntityClass;
-        this.itemType = itemType;
-    }
-
-    public Class<? extends CompleteEntity> getCompleteEntityClass()
-    {
-        return completeEntityClass;
-    }
-
-    public ItemType getItemType()
-    {
-        return itemType;
-    }
+    private final ItemType itemType;
 
     public static CompleteItemType from(final ItemType itemType)
     {
@@ -49,12 +32,47 @@ public enum CompleteItemType
                 .orElseThrow(IllegalArgumentException::new);
     }
 
+    public static <C extends CompleteEntity> C shallowFrom(final AtlasEntity reference)
+    {
+        final ItemType itemType = reference.getType();
+        final CompleteItemType completeItemType = CompleteItemType.from(itemType);
+        final C completeEntity = completeItemType.completeEntityShallowFrom(reference);
+        return completeEntity;
+    }
+
+    CompleteItemType(final Class<? extends CompleteEntity> completeEntityClass,
+            final ItemType itemType)
+    {
+        this.completeEntityClass = completeEntityClass;
+        this.itemType = itemType;
+    }
+
     public <C extends CompleteEntity> C completeEntityFrom(final AtlasEntity reference)
+    {
+        validate(reference);
+        return (C) CompleteEntity.from(reference);
+    }
+
+    public <C extends CompleteEntity> C completeEntityShallowFrom(final AtlasEntity reference)
+    {
+        validate(reference);
+        return (C) CompleteEntity.shallowFrom(reference);
+    }
+
+    public Class<? extends CompleteEntity> getCompleteEntityClass()
+    {
+        return this.completeEntityClass;
+    }
+
+    public ItemType getItemType()
+    {
+        return this.itemType;
+    }
+
+    private void validate(final AtlasEntity reference)
     {
         Validate.isTrue(getItemType().getMemberClass().isAssignableFrom(reference.getClass()),
                 "reference: " + reference + "; cannot be converted to completed entity " + this
                         + ".");
-
-        return (C) CompleteEntity.from(reference);
     }
 }

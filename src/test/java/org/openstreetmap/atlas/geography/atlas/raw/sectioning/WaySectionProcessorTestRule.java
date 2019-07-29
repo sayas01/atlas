@@ -71,6 +71,9 @@ public class WaySectionProcessorTestRule extends CoreTestRule
     @TestAtlas(loadFromTextResource = "nodeAndPointAsRelationMember.atlas.txt")
     private Atlas nodeAndPointAsRelationMember;
 
+    @TestAtlas(loadFromTextResource = "pedestrianRing.atlas.txt")
+    private Atlas pedestrianRing;
+
     public Atlas getBidirectionalRingAtlas()
     {
         return this.bidirectioalRingAtlas;
@@ -101,14 +104,14 @@ public class WaySectionProcessorTestRule extends CoreTestRule
         return this.lineWithRepeatedLocation;
     }
 
-    public Atlas getLoopingWayWithIntersectionAtlas()
-    {
-        return this.loopingWayWithIntersection;
-    }
-
     public Atlas getLoopWithRepeatedLocationAtlas()
     {
         return this.loopWithRepeatedLocation;
+    }
+
+    public Atlas getLoopingWayWithIntersectionAtlas()
+    {
+        return this.loopingWayWithIntersection;
     }
 
     public Atlas getMalformedPolyLineAtlas()
@@ -134,6 +137,11 @@ public class WaySectionProcessorTestRule extends CoreTestRule
     public Atlas getOneWaySimpleLineAtlas()
     {
         return this.oneWaySimpleLine;
+    }
+
+    public Atlas getPedestrianRingAtlas()
+    {
+        return this.pedestrianRing;
     }
 
     public Atlas getRawAtlasSpanningOutsideBoundary()

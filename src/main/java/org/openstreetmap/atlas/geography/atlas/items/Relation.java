@@ -1,6 +1,7 @@
 package org.openstreetmap.atlas.geography.atlas.items;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -47,6 +49,7 @@ import com.google.gson.JsonObject;
  * @author matthieun
  * @author Sid
  * @author hallahan
+ * @author Yazad Khambata
  */
 public abstract class Relation extends AtlasEntity
         implements Iterable<RelationMember>, GeoJsonFeatureCollection<RelationMember>
@@ -62,12 +65,10 @@ public abstract class Relation extends AtlasEntity
         INNER
     }
 
-    private static final Logger logger = LoggerFactory.getLogger(Relation.class);
-    private static final long serialVersionUID = -9013894610780915685L;
-
     public static final Comparator<Relation> RELATION_ID_COMPARATOR = Comparator
             .comparingLong(AtlasObject::getIdentifier);
-
+    private static final Logger logger = LoggerFactory.getLogger(Relation.class);
+    private static final long serialVersionUID = -9013894610780915685L;
     private static final RelationOrAreaToMultiPolygonConverter MULTI_POLYGON_CONVERTER = new RelationOrAreaToMultiPolygonConverter();
 
     protected Relation(final Atlas atlas)
@@ -319,6 +320,43 @@ public abstract class Relation extends AtlasEntity
      * @return All the members of this specific (potentially sliced) relation.
      */
     public abstract RelationMemberList members();
+
+    /**
+     * Get a subset of {@link #members()} matching the predicate.
+     *
+     * @param predicate
+     *            - the predicate to filter on.
+     * @return - {@link #members()} matching the predicate.
+     */
+    public RelationMemberList membersMatching(final Predicate<RelationMember> predicate)
+    {
+        return members().stream().filter(predicate).collect(RelationMemberList.collect());
+    }
+
+    /**
+     * Get a subset of {@link #members()} matching a certain {@link ItemType}.
+     *
+     * @param itemTypes
+     *            - the types of members to filter.
+     * @return - {@link #members()} of type itemType.
+     */
+    public RelationMemberList membersOfType(final ItemType... itemTypes)
+    {
+        final List<Predicate<RelationMember>> itemTypePredicates = Arrays.stream(itemTypes)
+                .map(itemType ->
+                {
+                    final Predicate<RelationMember> relationMemberPredicate = member -> member
+                            .getEntity().getType() == itemType;
+
+                    return relationMemberPredicate;
+                }).collect(Collectors.toList());
+
+        final RelationMemberList relationMemberList = itemTypePredicates.stream()
+                .map(this::membersMatching).flatMap(RelationMemberList::stream)
+                .collect(RelationMemberList.collect());
+
+        return relationMemberList;
+    }
 
     /**
      * In case a {@link Relation} is spanning multiple {@link Atlas}, keep track of the parent OSM

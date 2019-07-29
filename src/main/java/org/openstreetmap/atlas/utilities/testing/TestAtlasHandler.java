@@ -1,6 +1,7 @@
 package org.openstreetmap.atlas.utilities.testing;
 
 import java.lang.reflect.Field;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -27,6 +28,7 @@ import org.openstreetmap.atlas.geography.atlas.pbf.AtlasLoadingOption;
 import org.openstreetmap.atlas.geography.atlas.raw.creation.RawAtlasGenerator;
 import org.openstreetmap.atlas.geography.atlas.raw.sectioning.WaySectionProcessor;
 import org.openstreetmap.atlas.streaming.compression.Decompressor;
+import org.openstreetmap.atlas.streaming.resource.AbstractResource;
 import org.openstreetmap.atlas.streaming.resource.ByteArrayResource;
 import org.openstreetmap.atlas.streaming.resource.ClassResource;
 import org.openstreetmap.atlas.streaming.resource.FileSuffix;
@@ -57,13 +59,49 @@ import org.openstreetmap.atlas.utilities.testing.TestAtlas.SizeEstimate;
  */
 public class TestAtlasHandler implements FieldHandler
 {
-    private static Map<String, String> mergeTags(final Map<String, String> firstTags,
-            final Map<String, String> secondTags)
+    public static Atlas getAtlasFromJsomOsmResource(final boolean josmFormat,
+            final AbstractResource resource, final String fileName)
     {
-        final Map<String, String> returnValue = new HashMap<>();
-        returnValue.putAll(firstTags);
-        returnValue.putAll(secondTags);
-        return returnValue;
+        FileSuffix.suffixFor(fileName).ifPresent(suffix ->
+        {
+            if (suffix == FileSuffix.GZIP)
+            {
+                resource.setDecompressor(Decompressor.GZIP);
+            }
+        });
+        final ByteArrayResource pbfFile = new ByteArrayResource();
+        if (josmFormat)
+        {
+            // If the XML file is in JOSM format, fix it to look like an OSM file
+            final StringResource osmFile = new StringResource();
+            new OsmFileParser().update(resource, osmFile);
+            new OsmFileToPbf().update(osmFile, pbfFile);
+        }
+        else
+        {
+            new OsmFileToPbf().update(resource, pbfFile);
+        }
+        return buildAtlasFromPbf(pbfFile);
+    }
+
+    /**
+     * Builds an {@link Atlas} from the given pbf resource, using the raw atlas flow. This does NOT
+     * country-slice the pbf resource since no corresponding boundary file is supplied and the flow
+     * is not meant to test slicing logic.
+     *
+     * @param pbfResource
+     *            The pbf input resource to use
+     * @return the resulting Atlas
+     */
+    private static Atlas buildAtlasFromPbf(final Resource pbfResource)
+    {
+        // Create raw Atlas
+        final AtlasLoadingOption loadingOption = AtlasLoadingOption.withNoFilter();
+        final Atlas rawAtlas = new RawAtlasGenerator(pbfResource, loadingOption,
+                MultiPolygon.MAXIMUM).build();
+
+        // Way-section
+        return new WaySectionProcessor(rawAtlas, loadingOption).run();
     }
 
     private static Map<String, String> mergeTags(final String[] firstTags,
@@ -72,6 +110,15 @@ public class TestAtlasHandler implements FieldHandler
         final List<String> allTags = new ArrayList<>(Arrays.asList(firstTags));
         allTags.addAll(Arrays.asList(secondTags));
         return parseTags(allTags.toArray(new String[0]));
+    }
+
+    private static Map<String, String> mergeTags(final Map<String, String> firstTags,
+            final Map<String, String> secondTags)
+    {
+        final Map<String, String> returnValue = new HashMap<>();
+        returnValue.putAll(firstTags);
+        returnValue.putAll(secondTags);
+        return returnValue;
     }
 
     private static Map<String, String> parseTags(final String... tags)
@@ -181,26 +228,6 @@ public class TestAtlasHandler implements FieldHandler
         return Polygon.SILICON_VALLEY;
     }
 
-    /**
-     * Builds an {@link Atlas} from the given pbf resource, using the raw atlas flow. This does NOT
-     * country-slice the pbf resource since no corresponding boundary file is supplied and the flow
-     * is not meant to test slicing logic.
-     *
-     * @param pbfResource
-     *            The pbf input resource to use
-     * @return the resulting Atlas
-     */
-    private Atlas buildAtlasFromPbf(final Resource pbfResource)
-    {
-        // Create raw Atlas
-        final AtlasLoadingOption loadingOption = AtlasLoadingOption.withNoFilter();
-        final Atlas rawAtlas = new RawAtlasGenerator(pbfResource, loadingOption,
-                MultiPolygon.MAXIMUM).build();
-
-        // Way-section
-        return new WaySectionProcessor(rawAtlas, loadingOption).run();
-    }
-
     private Location convertLoc(final Loc point)
     {
         if (point.value().equalsIgnoreCase(Loc.USE_LATLON)
@@ -221,14 +248,14 @@ public class TestAtlasHandler implements FieldHandler
         return Location.forString(point.value());
     }
 
-    private Polygon convertPolygon(final Loc[] points)
-    {
-        return new Polygon(pointsToLocations(points));
-    }
-
     private PolyLine convertPolyLine(final Loc[] points)
     {
         return new PolyLine(pointsToLocations(points));
+    }
+
+    private Polygon convertPolygon(final Loc[] points)
+    {
+        return new Polygon(pointsToLocations(points));
     }
 
     private AtlasSize convertSizeEstimates(final SizeEstimate estimate)
@@ -379,7 +406,10 @@ public class TestAtlasHandler implements FieldHandler
                         Enum.valueOf(ItemType.class, member.type().toUpperCase()));
             }
             final long identifier = relationIDGenerator.nextId(relation.id());
-            builder.addRelation(identifier, identifier, bean, parseTags(relation.tags()));
+            final long osmIdentifier = relation.osmId().equals(TestAtlas.DEFAULT_OSM_ID)
+                    ? identifier
+                    : relationIDGenerator.nextId(relation.osmId());
+            builder.addRelation(identifier, osmIdentifier, bean, parseTags(relation.tags()));
         }
     }
 
@@ -388,35 +418,16 @@ public class TestAtlasHandler implements FieldHandler
     {
         final String packageName = rule.getClass().getPackage().getName().replaceAll("\\.", "/");
         final String completeName = String.format("%s/%s", packageName, resourcePath);
-        final ClassResource resource = new ClassResource(completeName);
-        FileSuffix.suffixFor(completeName).ifPresent(suffix ->
-        {
-            if (suffix == FileSuffix.GZIP)
-            {
-                resource.setDecompressor(Decompressor.GZIP);
-            }
-        });
         try
         {
-            final ByteArrayResource pbfFile = new ByteArrayResource();
-            if (josmFormat)
-            {
-                // If the XML file is in JOSM format, fix it to look like an OSM file
-                final StringResource osmFile = new StringResource();
-                new OsmFileParser().update(resource, osmFile);
-                new OsmFileToPbf().update(osmFile, pbfFile);
-            }
-            else
-            {
-                new OsmFileToPbf().update(resource, pbfFile);
-            }
-
-            field.set(rule, buildAtlasFromPbf(pbfFile));
+            field.set(rule, getAtlasFromJsomOsmResource(josmFormat, new ClassResource(completeName),
+                    Paths.get(completeName).getFileName().toString()));
         }
         catch (IllegalArgumentException | IllegalAccessException e)
         {
             throw new CoreException("Error loading from JOSM osm resource {}", resourcePath, e);
         }
+
     }
 
     private void loadFromTextResource(final Field field, final CoreTestRule rule,

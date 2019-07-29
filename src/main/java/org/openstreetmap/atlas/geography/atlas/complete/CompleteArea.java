@@ -1,17 +1,19 @@
 package org.openstreetmap.atlas.geography.atlas.complete;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.openstreetmap.atlas.exception.CoreException;
+import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.Polygon;
 import org.openstreetmap.atlas.geography.Rectangle;
+import org.openstreetmap.atlas.geography.atlas.change.eventhandling.event.TagChangeEvent;
+import org.openstreetmap.atlas.geography.atlas.change.eventhandling.listener.TagChangeListener;
 import org.openstreetmap.atlas.geography.atlas.items.Area;
 import org.openstreetmap.atlas.geography.atlas.items.Relation;
-
-import lombok.experimental.Delegate;
 
 /**
  * Independent {@link Area} that contains its own data. At scale, use at your own risk.
@@ -29,7 +31,6 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
     private Map<String, String> tags;
     private Set<Long> relationIdentifiers;
 
-    @Delegate
     private final TagChangeDelegate tagChangeDelegate = TagChangeDelegate.newTagChangeDelegate();
 
     /**
@@ -62,11 +63,6 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
         return new CompleteArea(area.getIdentifier()).withBoundsExtendedBy(area.bounds());
     }
 
-    CompleteArea(final long identifier)
-    {
-        this(identifier, null, null, null);
-    }
-
     public CompleteArea(final Long identifier, final Polygon polygon,
             final Map<String, String> tags, final Set<Long> relationIdentifiers)
     {
@@ -85,6 +81,17 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
         this.relationIdentifiers = relationIdentifiers;
     }
 
+    CompleteArea(final long identifier)
+    {
+        this(identifier, null, null, null);
+    }
+
+    @Override
+    public void addTagChangeListener(final TagChangeListener tagChangeListener)
+    {
+        this.tagChangeDelegate.addTagChangeListener(tagChangeListener);
+    }
+
     @Override
     public Polygon asPolygon()
     {
@@ -98,6 +105,12 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
     }
 
     @Override
+    public CompleteItemType completeItemType()
+    {
+        return CompleteItemType.AREA;
+    }
+
+    @Override
     public boolean equals(final Object other)
     {
         if (other instanceof CompleteArea)
@@ -107,6 +120,12 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
                     && Objects.equals(this.asPolygon(), that.asPolygon());
         }
         return false;
+    }
+
+    @Override
+    public void fireTagChangeEvent(final TagChangeEvent tagChangeEvent)
+    {
+        this.tagChangeDelegate.fireTagChangeEvent(tagChangeEvent);
     }
 
     @Override
@@ -134,6 +153,45 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
     }
 
     @Override
+    public String prettify(final PrettifyStringFormat format)
+    {
+        String separator = "";
+        if (format == PrettifyStringFormat.MINIMAL_SINGLE_LINE)
+        {
+            separator = "";
+        }
+        else if (format == PrettifyStringFormat.MINIMAL_MULTI_LINE)
+        {
+            separator = "\n";
+        }
+        final StringBuilder builder = new StringBuilder();
+
+        builder.append(this.getClass().getSimpleName() + " ");
+        builder.append("[");
+        builder.append(separator);
+        builder.append("identifier: " + this.identifier + ", ");
+        builder.append(separator);
+        if (this.polygon != null)
+        {
+            builder.append("polygon: " + this.polygon + ", ");
+            builder.append(separator);
+        }
+        if (this.tags != null)
+        {
+            builder.append("tags: " + this.tags + ", ");
+            builder.append(separator);
+        }
+        if (this.relationIdentifiers != null)
+        {
+            builder.append("parentRelations: " + this.relationIdentifiers + ", ");
+            builder.append(separator);
+        }
+        builder.append("]");
+
+        return builder.toString();
+    }
+
+    @Override
     public Set<Relation> relations()
     {
         /*
@@ -146,11 +204,33 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
     }
 
     @Override
+    public void removeTagChangeListeners()
+    {
+        this.tagChangeDelegate.removeTagChangeListeners();
+    }
+
+    @Override
+    public void setTags(final Map<String, String> tags)
+    {
+        this.tags = tags != null ? new HashMap<>(tags) : null;
+    }
+
+    @Override
     public String toString()
     {
         return this.getClass().getSimpleName() + " [identifier=" + this.identifier + ", polygon="
                 + this.polygon + ", tags=" + this.tags + ", relationIdentifiers="
                 + this.relationIdentifiers + "]";
+    }
+
+    @Override
+    public String toWkt()
+    {
+        if (this.polygon == null)
+        {
+            return null;
+        }
+        return this.polygon.toWkt();
     }
 
     public CompleteArea withBoundsExtendedBy(final Rectangle bounds)
@@ -162,6 +242,12 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
         }
         this.bounds = Rectangle.forLocated(this.bounds, bounds);
         return this;
+    }
+
+    @Override
+    public CompleteEntity withGeometry(final Iterable<Location> locations)
+    {
+        return this.withPolygon(new Polygon(locations));
     }
 
     @Override
@@ -191,17 +277,5 @@ public class CompleteArea extends Area implements CompleteEntity<CompleteArea>
         this.relationIdentifiers = relations.stream().map(Relation::getIdentifier)
                 .collect(Collectors.toSet());
         return this;
-    }
-
-    @Override
-    public void setTags(final Map<String, String> tags)
-    {
-        this.tags = tags;
-    }
-
-    @Override
-    public CompleteItemType completeItemType()
-    {
-        return CompleteItemType.AREA;
     }
 }

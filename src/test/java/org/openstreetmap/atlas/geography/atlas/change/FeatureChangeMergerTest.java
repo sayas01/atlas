@@ -1,13 +1,13 @@
 package org.openstreetmap.atlas.geography.atlas.change;
 
 import java.util.Arrays;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.openstreetmap.atlas.exception.CoreException;
+import org.openstreetmap.atlas.exception.change.FeatureChangeMergeException;
+import org.openstreetmap.atlas.exception.change.MergeFailureType;
 import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.PolyLine;
 import org.openstreetmap.atlas.geography.Polygon;
@@ -30,14 +30,15 @@ import org.openstreetmap.atlas.geography.atlas.items.Relation;
 import org.openstreetmap.atlas.geography.atlas.items.RelationMemberList;
 import org.openstreetmap.atlas.utilities.collections.Maps;
 import org.openstreetmap.atlas.utilities.collections.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author lcram
  */
 public class FeatureChangeMergerTest
 {
-    @Rule
-    public final ExpectedException expectedException = ExpectedException.none();
+    private static final Logger logger = LoggerFactory.getLogger(FeatureChangeMergerTest.class);
 
     @Test
     public void testMergeAreasFail()
@@ -55,9 +56,33 @@ public class FeatureChangeMergerTest
          * This merge will fail, because the FeatureChanges have conflicting changed polygons. There
          * is no way to resolve conflicting geometry during a merge.
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceContainsFailureType(
+                    MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT));
+            Assert.assertTrue(exception.traceContainsExactFailureSubSequence(Arrays.asList(
+                    MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    MergeFailureType.DIFF_BASED_POLYGON_MERGE_FAIL,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED)));
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    MergeFailureType.DIFF_BASED_POLYGON_MERGE_FAIL,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -114,14 +139,14 @@ public class FeatureChangeMergerTest
                 ((Area) merged.getAfterView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L), ((Area) merged.getAfterView()).relations()
-                .stream().map(relation -> relation.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
 
         // Test that the beforeView was merged properly
         Assert.assertEquals(Maps.hashMap("a", "1", "b", "2"),
                 ((Area) merged.getBeforeView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L), ((Area) merged.getBeforeView()).relations()
-                .stream().map(relation -> relation.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
     }
 
     @Test
@@ -136,11 +161,34 @@ public class FeatureChangeMergerTest
                 123L, PolyLine.TEST_POLYLINE, Maps.hashMap("a", "3"), 1L, null, null), beforeEdge1);
 
         /*
-         * This merge will fail, because the FeatureChanges have conflicting tag changes.
+         * This merge will fail, because the FeatureChanges have a tag ADD/ADD conflict (a->2 vs.
+         * a->3).
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception
+                    .traceContainsFailureType(MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT));
+            Assert.assertTrue(exception.traceContainsExactFailureSubSequence(Arrays.asList(
+                    MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED)));
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -200,9 +248,27 @@ public class FeatureChangeMergerTest
         final FeatureChange featureChange2 = new FeatureChange(ChangeType.REMOVE,
                 new CompleteArea(123L, Polygon.CENTER, null, null), null);
 
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.FEATURE_CHANGE_INVALID_ADD_REMOVE_MERGE,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceContainsFailureType(
+                    MergeFailureType.FEATURE_CHANGE_INVALID_ADD_REMOVE_MERGE));
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(
+                    Arrays.asList(MergeFailureType.FEATURE_CHANGE_INVALID_ADD_REMOVE_MERGE,
+                            MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -213,9 +279,27 @@ public class FeatureChangeMergerTest
         final FeatureChange featureChange2 = new FeatureChange(ChangeType.ADD,
                 new CompleteArea(456L, Polygon.SILICON_VALLEY, null, null), null);
 
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceContainsFailureType(
+                    MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE));
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(
+                    Arrays.asList(MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE,
+                            MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -226,16 +310,34 @@ public class FeatureChangeMergerTest
         final FeatureChange featureChange2 = new FeatureChange(ChangeType.REMOVE,
                 new CompletePoint(123L, Location.CENTER, null, null), null);
 
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceContainsFailureType(
+                    MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE));
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(
+                    Arrays.asList(MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE,
+                            MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
     public void testMergeLinesFail()
     {
-        final CompleteLine beforeLine1 = new CompleteLine(123L, PolyLine.TEST_POLYLINE, null,
-                Sets.hashSet(1L, 2L, 3L));
+        final CompleteLine beforeLine1 = new CompleteLine(123L, PolyLine.TEST_POLYLINE,
+                Maps.hashMap(), Sets.hashSet(1L, 2L, 3L));
 
         final FeatureChange featureChange1 = new FeatureChange(ChangeType.ADD,
                 new CompleteLine(123L, PolyLine.TEST_POLYLINE_2, Maps.hashMap("a", "1"),
@@ -247,11 +349,29 @@ public class FeatureChangeMergerTest
                 beforeLine1);
 
         /*
-         * This merge will fail, because the FeatureChanges have conflicting tags.
+         * This merge will fail, because the FeatureChanges have an ADD/ADD tag conflict (a->1 vs.
+         * a->2)
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -279,7 +399,7 @@ public class FeatureChangeMergerTest
                 ((Line) merged.getAfterView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(2L, 3L, 4L), ((Line) merged.getAfterView()).relations()
-                .stream().map(relations -> relations.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
     }
 
     @Test
@@ -307,13 +427,49 @@ public class FeatureChangeMergerTest
                 ((Line) merged.getAfterView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L), ((Line) merged.getAfterView()).relations()
-                .stream().map(relations -> relations.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
 
         // Test that the beforeView was merged properly
         Assert.assertEquals(Maps.hashMap("a", "1", "b", "2"),
                 ((Line) merged.getBeforeView()).getTags());
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L), ((Line) merged.getBeforeView()).relations()
-                .stream().map(relations -> relations.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
+    }
+
+    @Test
+    public void testMergeMetaData()
+    {
+        final CompleteNode beforeNode1 = new CompleteNode(123L, Location.COLOSSEUM,
+                Maps.hashMap("a", "1", "b", "2"), Sets.treeSet(1L, 2L, 3L),
+                Sets.treeSet(10L, 11L, 12L), null);
+
+        final FeatureChange featureChange1 = new FeatureChange(ChangeType.ADD,
+                new CompleteNode(123L, Location.EIFFEL_TOWER, Maps.hashMap("a", "1", "c", "3"),
+                        Sets.treeSet(1L, 2L, 3L, 4L), Sets.treeSet(10L, 11L, 12L, 13L), null),
+                beforeNode1);
+        featureChange1.addMetaData("key1", "value1");
+        featureChange1.addMetaData("key", "value1");
+        featureChange1.addMetaData("same", "value");
+        final FeatureChange featureChange2 = new FeatureChange(ChangeType.ADD,
+                new CompleteNode(123L, Location.EIFFEL_TOWER,
+                        Maps.hashMap("a", "1", "b", "2", "c", "3"), Sets.treeSet(1L, 2L, 3L, 5L),
+                        Sets.treeSet(10L, 11L), null),
+                beforeNode1);
+        featureChange2.addMetaData("key2", "value2");
+        featureChange2.addMetaData("key", "value2");
+        featureChange2.addMetaData("same", "value");
+
+        FeatureChange merged = featureChange1.merge(featureChange2);
+        Assert.assertEquals("value1", merged.getMetaData().get("key1"));
+        Assert.assertEquals("value2", merged.getMetaData().get("key2"));
+        Assert.assertEquals("value1,value2", merged.getMetaData().get("key"));
+        Assert.assertEquals("value", merged.getMetaData().get("same"));
+
+        merged = featureChange2.merge(featureChange1);
+        Assert.assertEquals("value1", merged.getMetaData().get("key1"));
+        Assert.assertEquals("value2", merged.getMetaData().get("key2"));
+        Assert.assertEquals("value1,value2", merged.getMetaData().get("key"));
+        Assert.assertEquals("value", merged.getMetaData().get("same"));
     }
 
     @Test
@@ -335,11 +491,28 @@ public class FeatureChangeMergerTest
 
         /*
          * This merge will fail, because featureChange1 removes tag [b=2], while featureChange2
-         * modifies it to [b=3]. This generates an ADD/REMOVE collision.
+         * modifies it to [b=3]. This generates a tag ADD/REMOVE conflict.
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.DIFF_BASED_TAG_ADD_REMOVE_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.DIFF_BASED_TAG_ADD_REMOVE_CONFLICT,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -370,12 +543,56 @@ public class FeatureChangeMergerTest
                 ((Node) merged.getAfterView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L, 5L), ((Node) merged.getAfterView())
-                .inEdges().stream().map(edge -> edge.getIdentifier()).collect(Collectors.toSet()));
+                .inEdges().stream().map(Edge::getIdentifier).collect(Collectors.toSet()));
 
         Assert.assertEquals(Sets.hashSet(10L, 11L, 13L), ((Node) merged.getAfterView()).outEdges()
-                .stream().map(edge -> edge.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Edge::getIdentifier).collect(Collectors.toSet()));
 
         Assert.assertEquals(Location.EIFFEL_TOWER, ((Node) merged.getAfterView()).getLocation());
+    }
+
+    @Test
+    public void testMergeNodesWithConflictingBeforeViews()
+    {
+        final CompleteNode beforeNode1 = new CompleteNode(123L, Location.COLOSSEUM,
+                Maps.hashMap("a", "1", "b", "2"), Sets.treeSet(1L, 2L),
+                Sets.treeSet(10L, 11L, 12L, 13L), Sets.hashSet(1L));
+
+        final CompleteNode beforeNode2 = new CompleteNode(123L, Location.COLOSSEUM,
+                Maps.hashMap("a", "1", "b", "2"), Sets.treeSet(2L, 3L, 4L), Sets.treeSet(11L),
+                Sets.hashSet(1L));
+
+        final CompleteNode afterNode1 = new CompleteNode(123L, Location.COLOSSEUM, null,
+                Sets.treeSet(1L, 2L), Sets.treeSet(10L, 11L, 12L, 13L), null);
+        afterNode1.withInEdgeIdentifierLess(1L);
+        afterNode1.withOutEdgeIdentifierLess(12L);
+        afterNode1.withOutEdgeIdentifierLess(13L);
+
+        final CompleteNode afterNode2 = new CompleteNode(123L, Location.COLOSSEUM, null,
+                Sets.treeSet(2L, 3L), Sets.treeSet(11L), null);
+        afterNode2.withInEdgeIdentifierLess(4L);
+        afterNode2.withInEdgeIdentifierExtra(100L);
+
+        final FeatureChange featureChange1 = new FeatureChange(ChangeType.ADD, afterNode1,
+                beforeNode1);
+        final FeatureChange featureChange2 = new FeatureChange(ChangeType.ADD, afterNode2,
+                beforeNode2);
+
+        final FeatureChange merged = featureChange1.merge(featureChange2);
+        final Set<Long> goldenInEdgeSet = Sets.hashSet(2L, 3L, 100L);
+        final Set<Long> goldenOutEdgeSet = Sets.hashSet(10L, 11L);
+        final Set<Long> goldenExplicitlyExcludedInEdgeSet = Sets.hashSet(1L, 4L);
+        final Set<Long> goldenExplicitlyExcludedOutEdgeSet = Sets.hashSet(12L, 13L);
+
+        final CompleteNode mergedAfterNode = (CompleteNode) merged.getAfterView();
+        Assert.assertEquals(goldenInEdgeSet, mergedAfterNode.inEdges().stream()
+                .map(Edge::getIdentifier).collect(Collectors.toSet()));
+        Assert.assertEquals(goldenOutEdgeSet, mergedAfterNode.outEdges().stream()
+                .map(Edge::getIdentifier).collect(Collectors.toSet()));
+        Assert.assertEquals(goldenExplicitlyExcludedInEdgeSet,
+                mergedAfterNode.explicitlyExcludedInEdgeIdentifiers());
+        Assert.assertEquals(goldenExplicitlyExcludedOutEdgeSet,
+                mergedAfterNode.explicitlyExcludedOutEdgeIdentifiers());
     }
 
     @Test
@@ -404,14 +621,14 @@ public class FeatureChangeMergerTest
                 ((Node) merged.getAfterView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L), ((Node) merged.getAfterView()).inEdges()
-                .stream().map(edge -> edge.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Edge::getIdentifier).collect(Collectors.toSet()));
 
         // Test that the beforeView was merged properly
         Assert.assertEquals(Maps.hashMap("a", "1", "b", "2"),
                 ((Node) merged.getBeforeView()).getTags());
 
         Assert.assertEquals(Sets.treeSet(1L, 2L, 3L), ((Node) merged.getBeforeView()).inEdges()
-                .stream().map(edge -> edge.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Edge::getIdentifier).collect(Collectors.toSet()));
     }
 
     @Test
@@ -432,9 +649,27 @@ public class FeatureChangeMergerTest
          * This merge will fail, because featureChange1 and featureChange2 have conflicting changed
          * locations.
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    MergeFailureType.DIFF_BASED_LOCATION_MERGE_FAIL,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -485,16 +720,15 @@ public class FeatureChangeMergerTest
         Assert.assertEquals(Maps.hashMap("a", "1", "b", "2", "c", "3"),
                 ((Point) merged.getAfterView()).getTags());
 
-        Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L),
-                ((Point) merged.getAfterView()).relations().stream()
-                        .map(relation -> relation.getIdentifier()).collect(Collectors.toSet()));
+        Assert.assertEquals(Sets.hashSet(1L, 2L, 3L, 4L), ((Point) merged.getAfterView())
+                .relations().stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
 
         // Test that the beforeView was merged properly
         Assert.assertEquals(Maps.hashMap("a", "1", "b", "2"),
                 ((Point) merged.getBeforeView()).getTags());
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L), ((Point) merged.getBeforeView()).relations()
-                .stream().map(relation -> relation.getIdentifier()).collect(Collectors.toSet()));
+                .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
     }
 
     @Test
@@ -601,9 +835,26 @@ public class FeatureChangeMergerTest
         /*
          * This merge will fail due to an ADD/ADD conflict in the member list bean.
          */
-        this.expectedException.expect(CoreException.class);
-        this.expectedException.expectMessage("Cannot merge two feature changes");
-        featureChange1.merge(featureChange2);
+        boolean caught = false;
+        try
+        {
+            featureChange1.merge(featureChange2);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            caught = true;
+            Assert.assertEquals(MergeFailureType.DIFF_BASED_RELATION_BEAN_ADD_ADD_CONFLICT,
+                    exception.rootLevelFailure());
+            Assert.assertTrue(exception.traceMatchesExactFailureSequence(Arrays.asList(
+                    MergeFailureType.DIFF_BASED_RELATION_BEAN_ADD_ADD_CONFLICT,
+                    MergeFailureType.AFTER_VIEW_CONSISTENT_BEFORE_VIEW_MERGE_STRATEGY_FAILED,
+                    MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE)));
+        }
+
+        if (!caught)
+        {
+            Assert.fail("Did not catch expected FeatureChangeMergeException");
+        }
     }
 
     @Test
@@ -626,6 +877,8 @@ public class FeatureChangeMergerTest
         afterMemberBean1.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
         afterMemberBean1.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
         afterMemberBean1.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        afterMemberBean1
+                .addItemExplicitlyExcluded(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
         final RelationBean afterAllKnownOsmBean1 = new RelationBean();
         afterAllKnownOsmBean1.addItem(new RelationBeanItem(1L, "lineRole1", ItemType.LINE));
         afterAllKnownOsmBean1.addItem(new RelationBeanItem(2L, "lineRole2", ItemType.LINE));
@@ -645,6 +898,8 @@ public class FeatureChangeMergerTest
         afterMemberBean2.addItem(new RelationBeanItem(3L, "pointRole3", ItemType.POINT));
         final RelationBean afterAllKnownOsmBean2 = new RelationBean();
         afterAllKnownOsmBean2.addItem(new RelationBeanItem(2L, "lineRole2", ItemType.LINE));
+        afterAllKnownOsmBean2
+                .addItemExplicitlyExcluded(new RelationBeanItem(1L, "lineRole1", ItemType.LINE));
         final FeatureChange featureChange2 = new FeatureChange(ChangeType.ADD,
                 new CompleteRelation(123L, Maps.hashMap("b", "100"), Rectangle.TEST_RECTANGLE_2,
                         afterMemberBean2, Arrays.asList(11L, 12L), afterAllKnownOsmBean2, 1234567L,
@@ -685,6 +940,72 @@ public class FeatureChangeMergerTest
 
         Assert.assertEquals(Sets.hashSet(2L, 3L, 4L), ((Relation) merged.getAfterView()).relations()
                 .stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
+    }
+
+    @Test
+    public void testMergeRelationsWithConflictingBeforeViews()
+    {
+        final RelationBean beforeMemberBean1 = new RelationBean();
+        beforeMemberBean1.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        beforeMemberBean1.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        beforeMemberBean1.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        beforeMemberBean1.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        final CompleteRelation beforeRelation1 = new CompleteRelation(123L,
+                Maps.hashMap("a", "1", "b", "2", "c", "3"), Rectangle.TEST_RECTANGLE,
+                beforeMemberBean1, Arrays.asList(10L, 11L, 12L), null, null,
+                Sets.hashSet(1L, 2L, 3L));
+
+        final RelationBean beforeMemberBean2 = new RelationBean();
+        beforeMemberBean2.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        beforeMemberBean2.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        beforeMemberBean2.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        beforeMemberBean2.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        beforeMemberBean2.addItem(new RelationBeanItem(3L, "pointRole3", ItemType.POINT));
+        final CompleteRelation beforeRelation2 = new CompleteRelation(123L,
+                Maps.hashMap("a", "1", "b", "2", "c", "3"), Rectangle.TEST_RECTANGLE,
+                beforeMemberBean2, Arrays.asList(10L, 11L, 12L), null, null,
+                Sets.hashSet(1L, 2L, 3L));
+
+        final RelationBean afterMemberBean1 = new RelationBean();
+        afterMemberBean1.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        afterMemberBean1.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        afterMemberBean1.addItem(new RelationBeanItem(3L, "areaRole3", ItemType.AREA));
+        afterMemberBean1.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        afterMemberBean1.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        final FeatureChange featureChange1 = new FeatureChange(ChangeType.ADD,
+                new CompleteRelation(123L, Maps.hashMap("a", "1", "b", "2"),
+                        Rectangle.TEST_RECTANGLE, afterMemberBean1,
+                        Arrays.asList(10L, 11L, 12L, 13L), null, null, Sets.hashSet(1L, 2L)),
+                beforeRelation1);
+
+        final RelationBean afterMemberBean2 = new RelationBean();
+        afterMemberBean2.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        afterMemberBean2.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        afterMemberBean2.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        afterMemberBean2.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        afterMemberBean2.addItem(new RelationBeanItem(4L, "pointRole4", ItemType.POINT));
+        afterMemberBean2
+                .addItemExplicitlyExcluded(new RelationBeanItem(3L, "pointRole3", ItemType.POINT));
+        final FeatureChange featureChange2 = new FeatureChange(ChangeType.ADD,
+                new CompleteRelation(123L, Maps.hashMap("a", "1", "b", "2"),
+                        Rectangle.TEST_RECTANGLE, afterMemberBean2,
+                        Arrays.asList(10L, 11L, 12L, 13L), null, null, Sets.hashSet(1L, 2L)),
+                beforeRelation2);
+
+        final FeatureChange merged = featureChange1.merge(featureChange2);
+
+        final RelationBean goldenMergedMemberBean = new RelationBean();
+        goldenMergedMemberBean.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        goldenMergedMemberBean.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        goldenMergedMemberBean.addItem(new RelationBeanItem(3L, "areaRole3", ItemType.AREA));
+        goldenMergedMemberBean.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        goldenMergedMemberBean.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        goldenMergedMemberBean.addItem(new RelationBeanItem(4L, "pointRole4", ItemType.POINT));
+        goldenMergedMemberBean
+                .addItemExplicitlyExcluded(new RelationBeanItem(3L, "pointRole3", ItemType.POINT));
+
+        Assert.assertTrue(goldenMergedMemberBean.equalsIncludingExplicitlyExcluded(
+                ((Relation) merged.getAfterView()).members().asBean()));
     }
 
     @Test
@@ -771,5 +1092,86 @@ public class FeatureChangeMergerTest
 
         Assert.assertEquals(Sets.hashSet(1L, 2L, 3L), ((Relation) merged.getBeforeView())
                 .relations().stream().map(Relation::getIdentifier).collect(Collectors.toSet()));
+    }
+
+    @Test
+    public void testRemoveMerge()
+    {
+        /*
+         * Test the basic REMOVE merge case, where no special logic is needed.
+         */
+        final CompletePoint beforePoint = new CompletePoint(123L, Location.CENTER,
+                Maps.hashMap("a", "1", "b", "2"), Sets.hashSet(1L, 2L));
+        final CompletePoint afterPoint = CompletePoint.shallowFrom(beforePoint);
+        final FeatureChange pointChange1 = new FeatureChange(ChangeType.REMOVE, afterPoint,
+                beforePoint);
+        final FeatureChange pointChange2 = new FeatureChange(ChangeType.REMOVE, afterPoint,
+                beforePoint);
+        final FeatureChange pointChangeMerged = pointChange1.merge(pointChange2);
+        Assert.assertEquals(beforePoint, pointChangeMerged.getBeforeView());
+
+        /*
+         * Test REMOVE merge logic for relations.
+         */
+        final RelationBean beforeMemberBean1 = new RelationBean();
+        beforeMemberBean1.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        beforeMemberBean1.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        beforeMemberBean1.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        beforeMemberBean1.addItem(new RelationBeanItem(2L, "pointRole2", ItemType.POINT));
+        final RelationBean beforeAllKnownOsmBean1 = new RelationBean();
+        beforeAllKnownOsmBean1.addItem(new RelationBeanItem(1L, "lineRole1", ItemType.LINE));
+        final CompleteRelation beforeRelation1 = new CompleteRelation(123L,
+                Maps.hashMap("a", "1", "b", "2"), Rectangle.TEST_RECTANGLE, beforeMemberBean1,
+                Arrays.asList(10L, 11L, 12L), beforeAllKnownOsmBean1, 123456L,
+                Sets.hashSet(1L, 2L, 3L));
+        final RelationBean beforeMemberBean2 = new RelationBean();
+        beforeMemberBean2.addItem(new RelationBeanItem(1L, "areaRole1", ItemType.AREA));
+        beforeMemberBean2.addItem(new RelationBeanItem(2L, "areaRole2", ItemType.AREA));
+        beforeMemberBean2.addItem(new RelationBeanItem(1L, "pointRole1", ItemType.POINT));
+        final RelationBean beforeAllKnownOsmBean2 = new RelationBean();
+        beforeAllKnownOsmBean2.addItem(new RelationBeanItem(1L, "lineRole1", ItemType.LINE));
+        final CompleteRelation beforeRelation2 = new CompleteRelation(123L,
+                Maps.hashMap("a", "1", "b", "2"), Rectangle.TEST_RECTANGLE, beforeMemberBean2,
+                Arrays.asList(10L, 11L, 12L), beforeAllKnownOsmBean2, 123456L,
+                Sets.hashSet(1L, 2L, 3L));
+        final CompleteRelation afterRelation = CompleteRelation.shallowFrom(beforeRelation1);
+        final FeatureChange relationChange1 = new FeatureChange(ChangeType.REMOVE, afterRelation,
+                beforeRelation1);
+        final FeatureChange relationChange2 = new FeatureChange(ChangeType.REMOVE, afterRelation,
+                beforeRelation2);
+        final FeatureChange relationChangeMerged = relationChange1.merge(relationChange2);
+        final Relation relationBeforeView = (Relation) relationChangeMerged.getBeforeView();
+        Assert.assertTrue(beforeMemberBean1
+                .equalsIncludingExplicitlyExcluded(relationBeforeView.members().asBean()));
+        Assert.assertTrue(beforeAllKnownOsmBean1.equalsIncludingExplicitlyExcluded(
+                relationBeforeView.allKnownOsmMembers().asBean()));
+        Assert.assertTrue(beforeAllKnownOsmBean2.equalsIncludingExplicitlyExcluded(
+                relationBeforeView.allKnownOsmMembers().asBean()));
+
+        /*
+         * Test REMOVE merge logic for nodes.
+         */
+        final CompleteNode beforeNode1 = new CompleteNode(123L, Location.COLOSSEUM,
+                Maps.hashMap("a", "1", "b", "2"), Sets.treeSet(1L, 2L, 3L), Sets.treeSet(10L, 11L),
+                Sets.hashSet(1L));
+        final CompleteNode beforeNode2 = new CompleteNode(123L, Location.COLOSSEUM,
+                Maps.hashMap("a", "1", "b", "2"), Sets.treeSet(1L, 2L), Sets.treeSet(10L, 11L, 12L),
+                Sets.hashSet(1L));
+        final CompleteNode afterNode = CompleteNode.shallowFrom(beforeNode1);
+        final FeatureChange nodeChange1 = new FeatureChange(ChangeType.REMOVE, afterNode,
+                beforeNode1);
+        final FeatureChange nodeChange2 = new FeatureChange(ChangeType.REMOVE, afterNode,
+                beforeNode2);
+        final FeatureChange nodeChangeMerged = nodeChange1.merge(nodeChange2);
+        final Node nodeBeforeView = (Node) nodeChangeMerged.getBeforeView();
+        Assert.assertEquals(
+                beforeNode1.inEdges().stream().map(Edge::getIdentifier).collect(Collectors.toSet()),
+                nodeBeforeView.inEdges().stream().map(Edge::getIdentifier)
+                        .collect(Collectors.toSet()));
+        Assert.assertEquals(
+                beforeNode2.outEdges().stream().map(Edge::getIdentifier)
+                        .collect(Collectors.toSet()),
+                nodeBeforeView.outEdges().stream().map(Edge::getIdentifier)
+                        .collect(Collectors.toSet()));
     }
 }

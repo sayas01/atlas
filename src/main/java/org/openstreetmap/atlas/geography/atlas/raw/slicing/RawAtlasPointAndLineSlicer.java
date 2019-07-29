@@ -278,21 +278,17 @@ public class RawAtlasPointAndLineSlicer extends RawAtlasSlicer
         {
             for (final Geometry slice : mergedSlices.get(countryCode))
             {
+                final long lineSliceIdentifier = lineIdentifierFactory.nextIdentifier();
+                final List<Long> newLineShapePoints = processSlice(slice, pointIdentifierFactory,
+                        line);
                 // Check if the slice is within the working bound and mark all points for this
                 // slice for removal if so
                 if (isOutsideWorkingBound(slice))
                 {
-                    // increment the identifier factory, but don't bother slicing the line
-                    // this guarantees deterministic id assignment regardless of which countries
-                    // are being sliced
-                    lineIdentifierFactory.nextIdentifier();
                     removeShapePointsFromFilteredSliced(slice);
                 }
                 else
                 {
-                    final long lineSliceIdentifier = lineIdentifierFactory.nextIdentifier();
-                    final List<Long> newLineShapePoints = processSlice(slice,
-                            pointIdentifierFactory, line);
                     // Extract relevant tag values for this slice
                     final Map<String, String> lineTags = createLineTags(slice, line.getTags());
                     createdLines.add(
@@ -301,7 +297,18 @@ public class RawAtlasPointAndLineSlicer extends RawAtlasSlicer
             }
         });
         // Update the change with the added and removed lines
-        createdLines.forEach(this.slicedPointAndLineChanges::createLine);
+        if (line.isClosed())
+        {
+            final boolean clockwise = new Polygon(line.asPolyLine().truncate(0, 1)).isClockwise();
+            createdLines.forEach(createdLine ->
+            {
+                this.slicedPointAndLineChanges.createLine(createdLine, clockwise);
+            });
+        }
+        else
+        {
+            createdLines.forEach(this.slicedPointAndLineChanges::createLine);
+        }
         this.slicedPointAndLineChanges.createDeletedToCreatedMapping(line.getIdentifier(),
                 createdLines.stream().map(TemporaryLine::getIdentifier)
                         .collect(Collectors.toSet()));

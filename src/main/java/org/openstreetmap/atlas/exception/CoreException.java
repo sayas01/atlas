@@ -23,11 +23,12 @@ import org.slf4j.helpers.MessageFormatter;
  *
  * @author matthieun
  * @author tony
+ * @author Yazad Khambata
  */
 public class CoreException extends RuntimeException
 {
+    public static final String TOKEN = CoreException.class.getSimpleName();
     private static final long serialVersionUID = 5019327451085548495L;
-
     private static final Function<Object[], Object[]> refineArguments = arguments ->
     {
         if (arguments.length > 0 && arguments[arguments.length - 1] instanceof Throwable)
@@ -58,6 +59,13 @@ public class CoreException extends RuntimeException
     public static Supplier<CoreException> supplier(final String message, final Throwable cause)
     {
         return () -> new CoreException(message, cause);
+    }
+
+    protected static String messageWithToken(final String message)
+    {
+        final String separator = "; ";
+
+        return new StringBuilder(TOKEN).append(separator).append(message).toString();
     }
 
     public CoreException(final String message)

@@ -1,11 +1,13 @@
 package org.openstreetmap.atlas.geography.atlas.complete;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
+import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.Polygon;
 import org.openstreetmap.atlas.geography.Rectangle;
 import org.openstreetmap.atlas.geography.atlas.Atlas;
@@ -102,5 +104,29 @@ public class CompleteAreaTest
         // When we update the polygon again, the bounds recalculation should "forget" about the
         // first update
         Assert.assertEquals(Rectangle.forLocated(Polygon.SILICON_VALLEY), result.bounds());
+    }
+
+    @Test
+    public void testToWkt()
+    {
+        final CompleteArea area1 = new CompleteArea(123L);
+        area1.withPolygon(
+                Rectangle.forCorners(Location.forString("0,0"), Location.forString("1,1")));
+        Assert.assertEquals("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))", area1.toWkt());
+
+        final CompleteArea area2 = new CompleteArea(123L);
+        Assert.assertNull(area2.toWkt());
+    }
+
+    @Test
+    public void testWithGeometry()
+    {
+        final CompleteArea area = new CompleteArea(1L);
+        area.withGeometry(
+                Arrays.asList(Location.COLOSSEUM, Location.CENTER, Location.EIFFEL_TOWER));
+        Assert.assertEquals(
+                new Polygon(
+                        Arrays.asList(Location.COLOSSEUM, Location.CENTER, Location.EIFFEL_TOWER)),
+                area.asPolygon());
     }
 }

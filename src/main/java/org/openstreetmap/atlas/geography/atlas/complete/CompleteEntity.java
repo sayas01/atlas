@@ -9,6 +9,7 @@ import java.util.function.Function;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 import org.openstreetmap.atlas.exception.CoreException;
+import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.atlas.change.eventhandling.event.TagChangeEvent;
 import org.openstreetmap.atlas.geography.atlas.change.eventhandling.listenable.TagChangeListenable;
 import org.openstreetmap.atlas.geography.atlas.items.Area;
@@ -34,10 +35,10 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
     static Map<String, String> addNewTag(final Map<String, String> tags, final String key,
             final String value)
     {
-        Map<String, String> result = tags;
-        if (result == null)
+        Map<String, String> result = new HashMap<>();
+        if (tags != null)
         {
-            result = new HashMap<>();
+            result = new HashMap<>(tags);
         }
         result.put(key, value);
         return result;
@@ -108,10 +109,10 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
 
     static Map<String, String> removeTag(final Map<String, String> tags, final String key)
     {
-        Map<String, String> result = tags;
-        if (result == null)
+        Map<String, String> result = new HashMap<>();
+        if (tags != null)
         {
-            result = new HashMap<>();
+            result = new HashMap<>(tags);
         }
         result.remove(key);
         return result;
@@ -144,6 +145,36 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
                 return CompletePoint.shallowFrom((Point) reference);
             case RELATION:
                 return CompleteRelation.shallowFrom((Relation) reference);
+            default:
+                throw new CoreException("Unknown ItemType {}", type);
+        }
+    }
+
+    /**
+     * Create a shallow {@link CompleteEntity} from a given {@link ItemType} and identifier.
+     *
+     * @param type
+     *            the {@link ItemType}
+     * @param identifier
+     *            the identifier
+     * @return a shallow {@link CompleteEntity} that matches the requested parameters
+     */
+    static AtlasEntity shallowFrom(final ItemType type, final Long identifier)
+    {
+        switch (type)
+        {
+            case NODE:
+                return new CompleteNode(identifier);
+            case EDGE:
+                return new CompleteEdge(identifier);
+            case AREA:
+                return new CompleteArea(identifier);
+            case LINE:
+                return new CompleteLine(identifier);
+            case POINT:
+                return new CompletePoint(identifier);
+            case RELATION:
+                return new CompleteRelation(identifier);
             default:
                 throw new CoreException("Unknown ItemType {}", type);
         }
@@ -211,7 +242,13 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
         return completeEntity;
     }
 
+    CompleteItemType completeItemType();
+
     long getIdentifier();
+
+    Map<String, String> getTags();
+
+    ItemType getType();
 
     /**
      * A shallow {@link CompleteEntity} is one that contains only its identifier as effective data.
@@ -220,16 +257,48 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
      */
     boolean isShallow();
 
-    CompleteEntity withIdentifier(long identifier);
+    /**
+     * Transform this {@link CompleteEntity} into a pretty string. The pretty string for a
+     * {@link CompleteEntity} can be customized using different available formats.
+     *
+     * @param format
+     *            the format type for the pretty string
+     * @return the pretty string
+     */
+    String prettify(PrettifyStringFormat format);
 
-    CompleteEntity withRelationIdentifiers(Set<Long> relationIdentifiers);
+    /**
+     * Transform this {@link CompleteEntity} into a pretty string. This method uses the default
+     * format {@link PrettifyStringFormat#MINIMAL_SINGLE_LINE}.
+     *
+     * @return the pretty string
+     */
+    default String prettify()
+    {
+        return prettify(PrettifyStringFormat.MINIMAL_SINGLE_LINE);
+    }
 
-    CompleteEntity withRelations(Set<Relation> relations);
+    void setTags(Map<String, String> tags);
+
+    /**
+     * Get the WKT for this entity's geometry.
+     *
+     * @return the WKT of this entity's geometry, null if the geometry is null
+     */
+    String toWkt();
 
     default C withAddedTag(final String key, final String value)
     {
         return CompleteEntity.withAddedTag((C) this, key, value, false);
     }
+
+    CompleteEntity withGeometry(Iterable<Location> locations);
+
+    CompleteEntity withIdentifier(long identifier);
+
+    CompleteEntity withRelationIdentifiers(Set<Long> relationIdentifiers);
+
+    CompleteEntity withRelations(Set<Relation> relations);
 
     default C withRemovedTag(final String key)
     {
@@ -245,10 +314,4 @@ public interface CompleteEntity<C extends CompleteEntity<C>> extends TagChangeLi
     {
         return CompleteEntity.withTags((C) this, tags, false);
     }
-
-    void setTags(Map<String, String> tags);
-
-    Map<String, String> getTags();
-
-    CompleteItemType completeItemType();
 }

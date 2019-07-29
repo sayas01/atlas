@@ -5,7 +5,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.openstreetmap.atlas.exception.CoreException;
 import org.openstreetmap.atlas.geography.atlas.Atlas;
-import org.openstreetmap.atlas.geography.atlas.packed.PackedAtlasTest;
 import org.openstreetmap.atlas.geography.atlas.statistics.AtlasStatistics.StatisticKey;
 import org.openstreetmap.atlas.geography.atlas.statistics.AtlasStatistics.StatisticValue;
 
@@ -20,9 +19,19 @@ public class AtlasStatisticsTest
     public final AtlasStatisticsTestRule rule = new AtlasStatisticsTestRule();
 
     @Test
+    public void testCSVCompatability()
+    {
+        final StatisticKey key = new StatisticKey("", "last_edit_user_name", "kepta\"sds'sds");
+        // if there is a " or , or \n character within a field in a CSV, the CSV field is wrapped in
+        // double quotes and the interior double quote is escaped
+        final String correctlyFormattedCSVKey = ",last_edit_user_name,\"kepta\"\"sds'sds\"";
+        Assert.assertEquals(key.toString(), correctlyFormattedCSVKey);
+    }
+
+    @Test
     public void testCounting()
     {
-        final Atlas atlas = new PackedAtlasTest().getAtlas();
+        final Atlas atlas = this.rule.getPackedAtlas();
         final Counter counter = new Counter();
         final AtlasStatistics statistics = counter.processAtlas(atlas);
         Assert.assertEquals(7.245,
@@ -212,16 +221,6 @@ public class AtlasStatisticsTest
                 statistics.get(new StatisticKey("", "pier_distance", "true")).getCount(), 0.01);
         Assert.assertEquals(0.11,
                 statistics.get(new StatisticKey("", "pier_surface", "true")).getCount(), 0.01);
-    }
-
-    @Test
-    public void testCSVCompatability()
-    {
-        final StatisticKey key = new StatisticKey("", "last_edit_user_name", "kepta\"sds'sds");
-        // if there is a " or , or \n character within a field in a CSV, the CSV field is wrapped in
-        // double quotes and the interior double quote is escaped
-        final String correctlyFormattedCSVKey = ",last_edit_user_name,\"kepta\"\"sds'sds\"";
-        Assert.assertEquals(key.toString(), correctlyFormattedCSVKey);
     }
 
     @Test

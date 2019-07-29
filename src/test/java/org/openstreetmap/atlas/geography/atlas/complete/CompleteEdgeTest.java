@@ -1,11 +1,13 @@
 package org.openstreetmap.atlas.geography.atlas.complete;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
+import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.PolyLine;
 import org.openstreetmap.atlas.geography.Polygon;
 import org.openstreetmap.atlas.geography.atlas.Atlas;
@@ -122,5 +124,25 @@ public class CompleteEdgeTest
                         .collect(Collectors.toSet()),
                 result.relations().stream().map(Relation::getIdentifier)
                         .collect(Collectors.toSet()));
+    }
+
+    @Test
+    public void testToWkt()
+    {
+        final CompleteEdge edge1 = new CompleteEdge(123L);
+        edge1.withPolyLine(new PolyLine(Location.forString("0,0"), Location.forString("1,1")));
+        Assert.assertEquals("LINESTRING (0 0, 1 1)", edge1.toWkt());
+
+        final CompleteEdge edge2 = new CompleteEdge(123L);
+        Assert.assertNull(edge2.toWkt());
+    }
+
+    @Test
+    public void testWithGeometry()
+    {
+        final CompleteEdge edge = new CompleteEdge(1L);
+        edge.withGeometry(Arrays.asList(Location.COLOSSEUM, Location.CENTER));
+        Assert.assertEquals(new PolyLine(Arrays.asList(Location.COLOSSEUM, Location.CENTER)),
+                edge.asPolyLine());
     }
 }

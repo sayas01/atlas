@@ -12,13 +12,21 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.openstreetmap.atlas.exception.CoreException;
+import org.openstreetmap.atlas.exception.change.FeatureChangeMergeException;
+import org.openstreetmap.atlas.exception.change.MergeFailureType;
 import org.openstreetmap.atlas.geography.Location;
 import org.openstreetmap.atlas.geography.PolyLine;
 import org.openstreetmap.atlas.geography.Polygon;
 import org.openstreetmap.atlas.geography.atlas.builder.RelationBean;
 import org.openstreetmap.atlas.geography.atlas.builder.RelationBean.RelationBeanItem;
+import org.openstreetmap.atlas.geography.atlas.items.Edge;
+import org.openstreetmap.atlas.geography.atlas.items.Node;
+import org.openstreetmap.atlas.geography.atlas.packed.PackedAtlas;
+import org.openstreetmap.atlas.geography.atlas.packed.PackedRelation;
 import org.openstreetmap.atlas.utilities.collections.Maps;
 import org.openstreetmap.atlas.utilities.collections.Sets;
+import org.openstreetmap.atlas.utilities.function.QuaternaryOperator;
+import org.openstreetmap.atlas.utilities.function.SenaryFunction;
 import org.openstreetmap.atlas.utilities.function.TernaryOperator;
 
 /**
@@ -29,37 +37,228 @@ import org.openstreetmap.atlas.utilities.function.TernaryOperator;
  */
 public final class MemberMergeStrategies
 {
-    static final BinaryOperator<Map<String, String>> simpleTagMerger = Maps::withMaps;
+    static final BinaryOperator<Long> autofailBinaryLongMerger = (afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_MERGE,
+                "autofailBinaryLongMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
 
-    static final BinaryOperator<Set<Long>> simpleLongSetMerger = Sets::withSets;
+    static final QuaternaryOperator<Long> autofailQuaternaryLongMerger = (beforeLeft, beforeRight,
+            afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_MERGE,
+                "autofailQuaternaryLongMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}", beforeLeft,
+                beforeRight, afterLeft, afterRight);
+    };
 
-    static final BinaryOperator<Set<Long>> simpleLongSetAllowCollisionsMerger = (left,
-            right) -> Sets.withSets(false, left, right);
+    static final BinaryOperator<Map<String, String>> autofailBinaryTagMerger = (afterMapLeft,
+            afterMapRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_TAG_MERGE,
+                "autofailBinaryTagMerger:\n{}\nvs\n{}", afterMapLeft, afterMapRight);
+    };
 
-    static final BinaryOperator<SortedSet<Long>> simpleLongSortedSetMerger = Sets::withSortedSets;
+    static final QuaternaryOperator<Map<String, String>> autofailQuaternaryTagMerger = (
+            beforeMapLeft, afterMapLeft, beforeMapRight, afterMapRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_TAG_MERGE,
+                "autofailQuaternaryTagMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeMapLeft, beforeMapRight, afterMapLeft, afterMapRight);
+    };
 
-    static final BinaryOperator<SortedSet<Long>> simpleLongSortedSetAllowCollisionsMerger = (left,
-            right) -> Sets.withSortedSets(false, left, right);
+    static final BinaryOperator<Set<Long>> autofailBinaryLongSetMerger = (afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_SET_MERGE,
+                "autofailBinaryLongSetMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
 
-    static final BinaryOperator<RelationBean> simpleRelationBeanMerger = RelationBean::merge;
+    static final QuaternaryOperator<Set<Long>> autofailQuaternaryLongSetMerger = (beforeLeft,
+            afterLeft, beforeRight, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_SET_MERGE,
+                "autofailQuaternaryLongSetMerger: before\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeLeft, beforeRight, afterLeft, afterRight);
+    };
+
+    static final BinaryOperator<SortedSet<Long>> autofailBinaryLongSortedSetMerger = (afterLeft,
+            afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_SORTED_SET_MERGE,
+                "autofailBinaryLongSortedSetMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
+
+    static final QuaternaryOperator<SortedSet<Long>> autofailQuaternaryLongSortedSetMerger = (
+            beforeLeft, afterLeft, beforeRight, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LONG_SORTED_SET_MERGE,
+                "autofailQuaternaryLongSortedSetMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeLeft, beforeRight, afterLeft, afterRight);
+    };
+
+    static final BinaryOperator<Location> autofailBinaryLocationMerger = (afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LOCATION_MERGE,
+                "autofailBinaryLocationMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
+
+    static final QuaternaryOperator<Location> autofailQuaternaryLocationMerger = (beforeLeft,
+            afterLeft, beforeRight, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_LOCATION_MERGE,
+                "autofailQuaternaryLocationMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeLeft, beforeRight, afterLeft, afterRight);
+    };
+
+    static final BinaryOperator<PolyLine> autofailBinaryPolyLineMerger = (afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_POLYLINE_MERGE,
+                "autofailBinaryPolyLineMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
+
+    static final QuaternaryOperator<PolyLine> autofailQuaternaryPolyLineMerger = (beforeLeft,
+            afterLeft, beforeRight, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_POLYLINE_MERGE,
+                "autofailQuaternaryPolyLineMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeLeft, beforeRight, afterLeft, afterRight);
+    };
+
+    static final BinaryOperator<Polygon> autofailBinaryPolygonMerger = (afterLeft, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_POLYGON_MERGE,
+                "autofailBinaryPolygonMerger:\n{}\nvs\n{}", afterLeft, afterRight);
+    };
+
+    static final QuaternaryOperator<Polygon> autofailQuaternaryPolygonMerger = (beforeLeft,
+            afterLeft, beforeRight, afterRight) ->
+    {
+        throw new FeatureChangeMergeException(MergeFailureType.AUTOFAIL_POLYGON_MERGE,
+                "autofailQuaternaryPolygonMerger: before:\n{}\nvs\n{}\nafter:\n{}\nvs\n{}",
+                beforeLeft, beforeRight, afterLeft, afterRight);
+    };
+
+    static final BinaryOperator<Map<String, String>> simpleTagMerger = (afterMapLeft,
+            afterMapRight) ->
+    {
+        try
+        {
+            return Maps.withMaps(afterMapLeft, afterMapRight);
+        }
+        catch (final Exception exception)
+        {
+            throw new FeatureChangeMergeException(MergeFailureType.SIMPLE_TAG_MERGE_FAIL,
+                    "simpleTagMerger failed", exception);
+        }
+    };
+
+    static final BinaryOperator<Set<Long>> simpleLongSetMerger = (afterSetLeft, afterSetRight) ->
+    {
+        try
+        {
+            return Sets.withSets(false, afterSetLeft, afterSetRight);
+        }
+        catch (final Exception exception)
+        {
+            throw new FeatureChangeMergeException(MergeFailureType.SIMPLE_LONG_SET_MERGE_FAIL,
+                    "simpleLongSetMerger failed", exception);
+        }
+    };
+
+    static final BinaryOperator<SortedSet<Long>> simpleLongSortedSetMerger = (afterSetLeft,
+            afterSetRight) ->
+    {
+        try
+        {
+            return Sets.withSortedSets(false, afterSetLeft, afterSetRight);
+        }
+        catch (final Exception exception)
+        {
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.SIMPLE_LONG_SORTED_SET_MERGE_FAIL,
+                    "simpleLongSortedSetMerger failed", exception);
+        }
+    };
+
+    static final BinaryOperator<RelationBean> simpleRelationBeanMerger = (afterBeanLeft,
+            afterBeanRight) ->
+    {
+        try
+        {
+            return RelationBean.mergeBeans(afterBeanLeft, afterBeanRight);
+        }
+        catch (final Exception exception)
+        {
+            throw new FeatureChangeMergeException(MergeFailureType.SIMPLE_RELATION_BEAN_MERGE_FAIL,
+                    "simpleRelationBeanMerger failed", exception);
+        }
+    };
 
     static final TernaryOperator<Long> diffBasedLongMerger = (beforeLong, afterLongLeft,
-            afterLongRight) -> (Long) getDiffBasedMutuallyExclusiveMerger().apply(beforeLong,
-                    afterLongLeft, afterLongRight);
+            afterLongRight) ->
+    {
+        try
+        {
+            return (Long) getDiffBasedMutuallyExclusiveMerger().apply(beforeLong, afterLongLeft,
+                    afterLongRight);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            throw new FeatureChangeMergeException(
+                    exception.withNewTopLevelFailure(MergeFailureType.DIFF_BASED_LONG_MERGE_FAIL),
+                    "mutually exclusive Long merge failed", exception);
+        }
+    };
 
     static final TernaryOperator<Location> diffBasedLocationMerger = (beforeLocation,
-            afterLocationLeft,
-            afterLocationRight) -> (Location) getDiffBasedMutuallyExclusiveMerger()
-                    .apply(beforeLocation, afterLocationLeft, afterLocationRight);
+            afterLocationLeft, afterLocationRight) ->
+    {
+        try
+        {
+            return (Location) getDiffBasedMutuallyExclusiveMerger().apply(beforeLocation,
+                    afterLocationLeft, afterLocationRight);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            throw new FeatureChangeMergeException(
+                    exception.withNewTopLevelFailure(
+                            MergeFailureType.DIFF_BASED_LOCATION_MERGE_FAIL),
+                    "mutually exclusive Location merge failed", exception);
+        }
+    };
 
     static final TernaryOperator<PolyLine> diffBasedPolyLineMerger = (beforePolyLine,
-            afterPolyLineLeft,
-            afterPolyLineRight) -> (PolyLine) getDiffBasedMutuallyExclusiveMerger()
-                    .apply(beforePolyLine, afterPolyLineLeft, afterPolyLineRight);
+            afterPolyLineLeft, afterPolyLineRight) ->
+    {
+        try
+        {
+            return (PolyLine) getDiffBasedMutuallyExclusiveMerger().apply(beforePolyLine,
+                    afterPolyLineLeft, afterPolyLineRight);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            throw new FeatureChangeMergeException(
+                    exception.withNewTopLevelFailure(
+                            MergeFailureType.DIFF_BASED_POLYLINE_MERGE_FAIL),
+                    "mutually exclusive PolyLine merge failed", exception);
+        }
+    };
 
     static final TernaryOperator<Polygon> diffBasedPolygonMerger = (beforePolygon, afterPolygonLeft,
-            afterPolygonRight) -> (Polygon) getDiffBasedMutuallyExclusiveMerger()
-                    .apply(beforePolygon, afterPolygonLeft, afterPolygonRight);
+            afterPolygonRight) ->
+    {
+        try
+        {
+            return (Polygon) getDiffBasedMutuallyExclusiveMerger().apply(beforePolygon,
+                    afterPolygonLeft, afterPolygonRight);
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            throw new FeatureChangeMergeException(
+                    exception
+                            .withNewTopLevelFailure(MergeFailureType.DIFF_BASED_POLYGON_MERGE_FAIL),
+                    "mutually exclusive Polygon merge failed", exception);
+        }
+    };
 
     static final TernaryOperator<RelationBean> diffBasedRelationBeanMerger = (beforeBean,
             afterLeftBean, afterRightBean) ->
@@ -67,6 +266,10 @@ public final class MemberMergeStrategies
         final Map<RelationBeanItem, Integer> beforeBeanMap = beforeBean.asMap();
         final Map<RelationBeanItem, Integer> afterLeftBeanMap = afterLeftBean.asMap();
         final Map<RelationBeanItem, Integer> afterRightBeanMap = afterRightBean.asMap();
+
+        verifyExplicitlyExcludedSets(beforeBean.asSet(), afterLeftBean.asSet(),
+                afterLeftBean.getExplicitlyExcluded(), beforeBean.asSet(), afterRightBean.asSet(),
+                afterRightBean.getExplicitlyExcluded());
 
         /*
          * Compute the difference set between the beforeView and the afterViews (which is equivalent
@@ -108,7 +311,8 @@ public final class MemberMergeStrategies
             final Integer rightValue = removedFromRightView.get(leftKey);
             if (rightValue != null && !leftValue.equals(rightValue))
             {
-                throw new CoreException(
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.DIFF_BASED_RELATION_BEAN_REMOVE_REMOVE_CONFLICT,
                         "diffBasedRelationBeanMerger failed due to REMOVE/REMOVE conflict on key: [{}]: beforeValue absolute count was {} but removedLeft/Right diff counts conflict [{} vs {}]",
                         leftKey, beforeBeanMap.get(leftKey), leftValue, rightValue);
             }
@@ -123,7 +327,8 @@ public final class MemberMergeStrategies
                 .intersection(addedToLeftView.keySet(), removedFromRightView.keySet());
         if (!addedLeftRemovedRightConflicts.isEmpty())
         {
-            throw new CoreException(
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.DIFF_BASED_RELATION_BEAN_ADD_REMOVE_CONFLICT,
                     "diffBasedRelationBeanMerger failed due to ADD/REMOVE conflict(s) on key(s): {}",
                     addedLeftRemovedRightConflicts);
         }
@@ -131,9 +336,10 @@ public final class MemberMergeStrategies
                 .intersection(addedToRightView.keySet(), removedFromLeftView.keySet());
         if (!addedRightRemovedLeftConflicts.isEmpty())
         {
-            throw new CoreException(
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.DIFF_BASED_RELATION_BEAN_ADD_REMOVE_CONFLICT,
                     "diffBasedRelationBeanMerger failed due to ADD/REMOVE conflict(s) on key(s): {}",
-                    addedRightRemovedLeftConflicts);
+                    addedLeftRemovedRightConflicts);
         }
 
         /*
@@ -148,7 +354,8 @@ public final class MemberMergeStrategies
             final Integer rightValue = addedToRightView.get(leftKey);
             if (rightValue != null && !leftValue.equals(rightValue))
             {
-                throw new CoreException(
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.DIFF_BASED_RELATION_BEAN_ADD_ADD_CONFLICT,
                         "diffBasedRelationBeanMerger failed due to ADD/ADD conflict on key: [{}]: beforeValue absolute count was {} but addedLeft/Right diff counts conflict [{} vs {}]",
                         leftKey,
                         beforeBeanMap.get(leftKey) != null ? beforeBeanMap.get(leftKey) : 0,
@@ -322,7 +529,8 @@ public final class MemberMergeStrategies
             final String rightValue = addedToRightView.get(sharedKey);
             if (!Objects.equals(leftValue, rightValue))
             {
-                throw new CoreException(
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.DIFF_BASED_TAG_ADD_ADD_CONFLICT,
                         "diffBasedTagMerger failed due to ADD/ADD conflict on keys: [{} -> {}] vs [{} -> {}]",
                         sharedKey, leftValue, sharedKey, rightValue);
             }
@@ -336,13 +544,14 @@ public final class MemberMergeStrategies
                 keysRemovedFromRightView);
         final Set<String> keysAddedMerged = Sets.withSets(false, addedToLeftView.keySet(),
                 addedToRightView.keySet());
-        final Set<String> collision = com.google.common.collect.Sets.intersection(keysRemovedMerged,
+        final Set<String> conflicts = com.google.common.collect.Sets.intersection(keysRemovedMerged,
                 keysAddedMerged);
-        if (!collision.isEmpty())
+        if (!conflicts.isEmpty())
         {
-            throw new CoreException(
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.DIFF_BASED_TAG_ADD_REMOVE_CONFLICT,
                     "diffBasedTagMerger failed due to ADD/REMOVE conflict(s) on key(s): {}",
-                    collision);
+                    conflicts);
         }
 
         /*
@@ -365,6 +574,143 @@ public final class MemberMergeStrategies
         });
 
         return result;
+    };
+
+    /**
+     * A merger for cases when two {@link Set}s have conflicting beforeViews. This is useful for
+     * merging {@link Node} in/out {@link Edge} sets, since different shards may occasionally have
+     * inconsistent views of a {@link Node}'s connected {@link Edge}s. While this merger uses
+     * explicitlyExcluded state to properly compute the merge, it does not handle merging the
+     * explicitlyExcluded state itself. This responsibility lies with the caller.
+     */
+    static final SenaryFunction<SortedSet<Long>, SortedSet<Long>, Set<Long>, SortedSet<Long>, SortedSet<Long>, Set<Long>, SortedSet<Long>> conflictingBeforeViewSetMerger = (
+            beforeLeftSet, afterLeftSet, explicitlyExcludedLeftSet, beforeRightSet, afterRightSet,
+            explicitlyExcludedRightSet) ->
+    {
+        verifyExplicitlyExcludedSets(beforeLeftSet, afterLeftSet, explicitlyExcludedLeftSet,
+                beforeRightSet, afterRightSet, explicitlyExcludedRightSet);
+
+        /*
+         * Merge the removed sets. This should just work, since we are doing a key-only merge.
+         */
+        final Set<Long> removedMerged = Sets.withSets(false, explicitlyExcludedLeftSet,
+                explicitlyExcludedRightSet);
+
+        /*
+         * Compute the added sets. We do this by comparing the before and after views of the given
+         * identifier sets on each side of the merge.
+         */
+        final Set<Long> addedToLeft = com.google.common.collect.Sets.difference(afterLeftSet,
+                beforeLeftSet);
+        final Set<Long> addedToRight = com.google.common.collect.Sets.difference(afterRightSet,
+                beforeRightSet);
+
+        /*
+         * Merge the added sets. This should just work, since we are doing a key-only merge.
+         */
+        final Set<Long> addedMerged = Sets.withSets(false, addedToLeft, addedToRight);
+
+        /*
+         * Check for ADD/REMOVE conflicts. This occurs if one side of the merge adds an identifier
+         * which was explicitly removed by the other side.
+         */
+        final Set<Long> conflicts = com.google.common.collect.Sets.intersection(removedMerged,
+                addedMerged);
+        if (!conflicts.isEmpty())
+        {
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.CONFLICTING_BEFORE_VIEW_SET_ADD_REMOVE_CONFLICT,
+                    "conflictingBeforeViewSetMerger failed due to ADD/REMOVE conflict(s) on key(s): {}",
+                    conflicts);
+        }
+
+        /*
+         * Now, we need to construct a proper merged beforeView for the left and right sides (this
+         * view will be tolerant of inconsistencies in the left and right sides). Once we have this,
+         * we can apply the changes from our removedMerged and addedMerged sets to get the final
+         * result.
+         */
+        final Set<Long> mergedBeforeView = simpleLongSetMerger.apply(beforeLeftSet, beforeRightSet);
+        mergedBeforeView.removeAll(removedMerged);
+        mergedBeforeView.addAll(addedMerged);
+
+        final SortedSet<Long> resultSet = new TreeSet<>();
+        mergedBeforeView.forEach(resultSet::add);
+
+        return resultSet;
+    };
+
+    /**
+     * A merger for cases when two {@link RelationBean}s have conflicting beforeViews. This can
+     * happen occasionally, since different shards may have slightly inconsistent relation views.
+     * <p>
+     * Also note that this lambda does not respect duplicate {@link RelationBeanItem}s of a given
+     * value. Technically, OSM allows for duplicate {@link RelationBeanItem}s in a given relation.
+     * However, these duplicates are disallowed by {@link PackedAtlas#relationMembers} and by
+     * extension {@link PackedRelation#members}. As a result, we need not worry about that edge case
+     * here.
+     */
+    static final QuaternaryOperator<RelationBean> conflictingBeforeViewRelationBeanMerger = (
+            beforeLeftBean, afterLeftBean, beforeRightBean, afterRightBean) ->
+    {
+        verifyExplicitlyExcludedSets(beforeLeftBean.asSet(), afterLeftBean.asSet(),
+                afterLeftBean.getExplicitlyExcluded(), beforeRightBean.asSet(),
+                afterRightBean.asSet(), afterRightBean.getExplicitlyExcluded());
+
+        /*
+         * Merge the removed sets. This should just work, since we are doing a key-only merge and
+         * have already assumed that there cannot be duplicate RelationBeanItems.
+         */
+        final Set<RelationBeanItem> removedMerged = Sets.withSets(false,
+                afterLeftBean.getExplicitlyExcluded(), afterRightBean.getExplicitlyExcluded());
+
+        /*
+         * Compute the added sets. We do this by comparing the before and after views of the given
+         * RelationBeans on each side of the merge.
+         */
+        final Set<RelationBeanItem> addedToLeft = com.google.common.collect.Sets
+                .difference(afterLeftBean.asSet(), beforeLeftBean.asSet());
+        final Set<RelationBeanItem> addedToRight = com.google.common.collect.Sets
+                .difference(afterRightBean.asSet(), beforeRightBean.asSet());
+
+        /*
+         * Merge the added sets. This should just work, since we are doing a key-only merge and have
+         * already assumed that there cannot be duplicate RelationBeanItems.
+         */
+        final Set<RelationBeanItem> addedMerged = Sets.withSets(false, addedToLeft, addedToRight);
+
+        /*
+         * Check for ADD/REMOVE conflicts. This occurs if one side of the merge adds a member which
+         * was explicitly removed by the other side.
+         */
+        final Set<RelationBeanItem> conflicts = com.google.common.collect.Sets
+                .intersection(removedMerged, addedMerged);
+        if (!conflicts.isEmpty())
+        {
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.CONFLICTING_BEFORE_VIEW_RELATION_BEAN_ADD_REMOVE_CONFLICT,
+                    "conflictingBeforeViewRelationBeanMerger failed due to ADD/REMOVE conflict(s) on key(s): {}",
+                    conflicts);
+        }
+
+        /*
+         * Now, we need to construct a proper merged beforeView for the left and right sides (this
+         * view will be tolerant of inconsistencies in the left and right sides). Once we have this,
+         * we can apply the changes from our removedMerged and addedMerged sets to get the final
+         * result.
+         */
+        final Set<RelationBeanItem> mergedBeforeView = simpleRelationBeanMerger
+                .apply(beforeLeftBean, beforeRightBean).asSet();
+        mergedBeforeView.removeAll(removedMerged);
+        mergedBeforeView.addAll(addedMerged);
+
+        final RelationBean resultBean = new RelationBean();
+        mergedBeforeView.forEach(resultBean::addItem);
+        Stream.concat(afterLeftBean.getExplicitlyExcluded().stream(),
+                afterRightBean.getExplicitlyExcluded().stream())
+                .forEach(resultBean::addItemExplicitlyExcluded);
+
+        return resultBean;
     };
 
     /**
@@ -405,7 +751,7 @@ public final class MemberMergeStrategies
      * Returns a TernaryOperator that acts as a diff based, mutually exclusive chooser. The operator
      * can successfully merge two afterViews if: 1) both afterViews match OR 2) the afterViews are
      * mismatched, but one of the afterViews matches the beforeView. In case 2) the merger will
-     * select that afterView that differs from the beforeView. In any other case, the operator will
+     * select the afterView which differs from the beforeView. In any other case, the operator will
      * fail with an ADD/ADD conflict.
      *
      * @return the operator
@@ -438,10 +784,47 @@ public final class MemberMergeStrategies
             /*
              * If we get here, we have an ADD/ADD conflict.
              */
-            throw new CoreException(
-                    "diffBasedMutuallyExclusiveMerger failed due to ADD/ADD conflict: beforeView was {} but afterViews were [{} vs {}]",
+            throw new FeatureChangeMergeException(
+                    MergeFailureType.MUTUALLY_EXCLUSIVE_ADD_ADD_CONFLICT,
+                    "diffBasedMutuallyExclusiveMerger failed due to ADD/ADD conflict: beforeView was:\n{}\nbut afterViews were:\n{}\nvs\n{}",
                     beforeView, afterViewLeft, afterViewRight);
         };
+    }
+
+    private static <T> void verifyExplicitlyExcludedSets(final Set<T> beforeLeft,
+            final Set<T> afterLeft, final Set<T> explicitlyExcludedLeft, final Set<T> beforeRight,
+            final Set<T> afterRight, final Set<T> explicitlyExcludedRight)
+    {
+        /*
+         * The implicitly computed removed sets. These are computed by comparing the before and
+         * after views of the given set-based entities on each side of the merge.
+         */
+        final Set<T> implicitlyRemovedFromLeft = com.google.common.collect.Sets
+                .difference(beforeLeft, afterLeft);
+        final Set<T> implicitlyRemovedFromRight = com.google.common.collect.Sets
+                .difference(beforeRight, afterRight);
+
+        /*
+         * It must be the case that the explicitly and implicitly computed removed sets match for a
+         * given set-based entity from one side of the merge. If they don't, that means the user
+         * likely removed some elements without using the contextual API (withMembersAndSource for
+         * Relations, withXEdgeIdentifiersAndSource for Nodes), which means the explicitlyExcluded
+         * sets are not properly populated. This will lead to corrupt and unexpected results.
+         */
+        if (!explicitlyExcludedLeft.equals(implicitlyRemovedFromLeft))
+        {
+            throw new CoreException(
+                    "explicitlyExcludedLeft set did not match the implicitly computed removedFromLeft set:\n{}\nvs\n{}\n"
+                            + "This is likely because members were removed without using the correct withXAndSource API",
+                    explicitlyExcludedLeft, implicitlyRemovedFromLeft);
+        }
+        if (!explicitlyExcludedRight.equals(implicitlyRemovedFromRight))
+        {
+            throw new CoreException(
+                    "explicitlyExcludedRight set did not match the implicitly computed removedFromRight set:\n{}\nvs\n{}\n"
+                            + "This is likely because members were removed without using the correct withXAndSource API",
+                    explicitlyExcludedRight, implicitlyRemovedFromRight);
+        }
     }
 
     private MemberMergeStrategies()

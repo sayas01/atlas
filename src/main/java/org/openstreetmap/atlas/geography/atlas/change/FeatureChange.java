@@ -1,6 +1,8 @@
 package org.openstreetmap.atlas.geography.atlas.change;
 
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -9,6 +11,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.openstreetmap.atlas.exception.CoreException;
+import org.openstreetmap.atlas.exception.change.FeatureChangeMergeException;
+import org.openstreetmap.atlas.exception.change.MergeFailureType;
 import org.openstreetmap.atlas.geography.Located;
 import org.openstreetmap.atlas.geography.Rectangle;
 import org.openstreetmap.atlas.geography.atlas.Atlas;
@@ -20,6 +24,7 @@ import org.openstreetmap.atlas.geography.atlas.complete.CompleteLineItem;
 import org.openstreetmap.atlas.geography.atlas.complete.CompleteLocationItem;
 import org.openstreetmap.atlas.geography.atlas.complete.CompleteNode;
 import org.openstreetmap.atlas.geography.atlas.complete.CompleteRelation;
+import org.openstreetmap.atlas.geography.atlas.complete.PrettifyStringFormat;
 import org.openstreetmap.atlas.geography.atlas.items.Area;
 import org.openstreetmap.atlas.geography.atlas.items.AtlasEntity;
 import org.openstreetmap.atlas.geography.atlas.items.Edge;
@@ -30,7 +35,6 @@ import org.openstreetmap.atlas.geography.atlas.items.LocationItem;
 import org.openstreetmap.atlas.geography.atlas.items.Node;
 import org.openstreetmap.atlas.geography.atlas.items.Point;
 import org.openstreetmap.atlas.geography.atlas.items.Relation;
-import org.openstreetmap.atlas.geography.atlas.validators.FeatureChangeUsefulnessValidator;
 import org.openstreetmap.atlas.streaming.resource.WritableResource;
 
 /**
@@ -63,6 +67,7 @@ public class FeatureChange implements Located, Serializable
     private final ChangeType changeType;
     private AtlasEntity beforeView;
     private final AtlasEntity afterView;
+    private final Map<String, String> metaData;
 
     /**
      * Create a new {@link ChangeType#ADD} {@link FeatureChange} with a given afterView. The
@@ -197,31 +202,28 @@ public class FeatureChange implements Located, Serializable
         }
 
         this.validateNotShallow();
-        if (this.beforeView != null)
-        {
-            new FeatureChangeUsefulnessValidator(this).validate();
-        }
-    }
-
-    public String getFeatureChangeIdentifier()
-    {
-        return featureChangeIdentifier;
+        this.metaData = new HashMap<>();
     }
 
     /**
-     * Specify the Atlas on which this {@link FeatureChange} is based. {@link FeatureChange} objects
-     * with a contextual Atlas are able to calculate their before view, and so are able to leverage
-     * richer and more robust merging mechanics.
+     * Add a new key value pair to this FeatureChange's meta-data
      *
-     * @param atlas
-     *            the contextual atlas
-     * @return the updated {@link FeatureChange}
+     * @param key
+     *            The key
+     * @param value
+     *            The value
      */
-    FeatureChange withAtlasContext(final Atlas atlas)
+    public void addMetaData(final String key, final String value)
     {
-        computeBeforeViewUsingAtlasContext(atlas, this.changeType);
-        new FeatureChangeUsefulnessValidator(this).validate();
-        return this;
+        if (key == null)
+        {
+            throw new CoreException("Meta-Data key (value={}) cannot be null!", value);
+        }
+        if (value == null)
+        {
+            throw new CoreException("Meta-Data value (key={}) cannot be null!", key);
+        }
+        this.metaData.put(key, value);
     }
 
     /**
@@ -328,6 +330,11 @@ public class FeatureChange implements Located, Serializable
         return this.changeType;
     }
 
+    public String getFeatureChangeIdentifier()
+    {
+        return this.featureChangeIdentifier;
+    }
+
     public long getIdentifier()
     {
         return getAfterView().getIdentifier();
@@ -336,6 +343,11 @@ public class FeatureChange implements Located, Serializable
     public ItemType getItemType()
     {
         return getAfterView().getType();
+    }
+
+    public Map<String, String> getMetaData()
+    {
+        return new HashMap<>(this.metaData);
     }
 
     /**
@@ -390,65 +402,176 @@ public class FeatureChange implements Located, Serializable
         // will always fail. We enforce this assumption in order to make the ADD/REMOVE merge logic
         // simpler.
         /*
-         * Once basic mergeability is established, the merge logic proceeds.
+         * Once basic mergeability is established, the merge logic proceeds:
          */
         // Merging two REMOVE changes:
-        // This case is easy. Since a REMOVE contains no additional information, we can simply
-        // arbitrarily return the left side FeatureChange. The beforeViews are guaranteed to be
-        // properly merged because either:
+        // There is no need to merge the afterViews (since they are shallow), but we must ensure
+        // that the beforeViews are properly merged. There are 3 possibilities,
+        // outlined below.
         //
-        // 1) Both FeatureChanges had fully populated, equivalent beforeViews (which are computed
-        // automatically when a REMOVE FeatureChange is created)
-        //
-        // OR
+        // 1) Both FeatureChanges had fully populated, equivalent beforeViews, which are computed
+        // automatically when a REMOVE FeatureChange is created (except possibly in the case of Node
+        // and Relation, see 3) below)
         //
         // 2) Neither FeatureChange had a beforeView, in which case no merge is required.
+        //
+        // 3) In cases where the REMOVE is acting on a Relation, we first need to check if
+        // there are inconsistencies in the beforeViews of members and allKnownOsmMembers. If the
+        // REMOVE is acting on a Node, we need to check if there are inconsistencies in the
+        // beforeViews of the in/out Edge identifier sets. Any inconsistencies must be merged. We
+        // allow for inconsistencies in these specific cases, since it is possible that
+        // FeatureChanges generated in different shards will have slightly different views of the
+        // same Feature (since RelationMemberLists and in/out edge sets can be inconsistent across
+        // shards).
         //
         // Merging two ADD changes:
         // In this case, we need to perform additional checks to ensure that the FeatureChanges can
         // indeed properly merge. We also must ensure that the potentially differing beforeViews can
         // merge. For more information on this, see
         // FeatureChangeMergingHelpers#mergeADDFeatureChangePair.
+        FeatureChange result = this;
         try
         {
             // Pre-condition 1)
             if (this.getIdentifier() != other.getIdentifier()
-                    || this.getItemType() != other.getItemType()
-                    || this.getChangeType() != other.getChangeType())
+                    || this.getItemType() != other.getItemType())
             {
-                throw new CoreException(
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.FEATURE_CHANGE_INVALID_PROPERTIES_MERGE,
                         "Cannot merge FeatureChanges with mismatching properties: [{}, {}, {}] vs [{}, {}, {}]",
                         this.getIdentifier(), this.getItemType(), this.getChangeType(),
                         other.getIdentifier(), other.getItemType(), other.getChangeType());
+            }
+
+            // Pre-condition 1A) (we separate this one to provide a better exception)
+            if (this.getIdentifier() == other.getIdentifier()
+                    && this.getItemType() == other.getItemType()
+                    && this.getChangeType() != other.getChangeType())
+            {
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.FEATURE_CHANGE_INVALID_ADD_REMOVE_MERGE,
+                        "Cannot merge FeatureChanges for [{}, {}], one is ADD and one is REMOVE",
+                        this.getIdentifier(), this.getItemType());
             }
 
             // Pre-condition 2)
             if (this.getBeforeView() == null && other.getBeforeView() != null
                     || this.getBeforeView() != null && other.getBeforeView() == null)
             {
-                throw new CoreException("One of the FeatureChanges was missing a beforeView - "
-                        + "cannot merge two FeatureChanges unless both either explicitly provide or explicitly exclude a beforeView, {} and {}",
+                throw new FeatureChangeMergeException(
+                        MergeFailureType.FEATURE_CHANGE_IMBALANCED_BEFORE_VIEW,
+                        "One of the FeatureChanges was missing a beforeView - "
+                                + "cannot merge two FeatureChanges unless both either explicitly provide or explicitly exclude a beforeView, {} and {}",
                         this.toString(), other.toString());
             }
 
             // Actually merge the changes
             if (this.getChangeType() == ChangeType.REMOVE)
             {
-                return this;
+                /*
+                 * Pre-condition 2 implies that if one beforeView is null, both are null so it is
+                 * safe to arbitrarily pick from the left or right side of the merge.
+                 */
+                if (this.getBeforeView() != null)
+                {
+                    result = FeatureChangeMergingHelpers.mergeREMOVEFeatureChangePair(this, other);
+                }
             }
             else if (this.getChangeType() == ChangeType.ADD)
             {
-                return FeatureChangeMergingHelpers.mergeADDFeatureChangePair(this, other);
+                result = FeatureChangeMergingHelpers.mergeADDFeatureChangePair(this, other);
             }
-
-            // If we get here, something very unexpected happened.
-            throw new CoreException("Unable to merge {} and {}", this, other);
+            else
+            {
+                // If we get here, something very unexpected happened.
+                throw new CoreException("Unexpected merge failure for {} and {}", this.prettify(),
+                        other.prettify());
+            }
+        }
+        catch (final FeatureChangeMergeException exception)
+        {
+            final List<MergeFailureType> newFailureTrace = exception
+                    .withNewTopLevelFailure(MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE);
+            throw new FeatureChangeMergeException(newFailureTrace,
+                    "Cannot merge two feature changes:\n{}\nAND\n{}\nFailureTrace: {}",
+                    this.prettify(), other.prettify(), newFailureTrace, exception);
         }
         catch (final Exception exception)
         {
-            throw new CoreException("Cannot merge two feature changes {} and {}.", this, other,
-                    exception);
+            throw new FeatureChangeMergeException(MergeFailureType.HIGHEST_LEVEL_MERGE_FAILURE,
+                    "Cannot merge two feature changes:\n{}\nAND\n{}", this.prettify(),
+                    other.prettify(), exception);
         }
+        FeatureChangeMergingHelpers.mergeMetaData(this, other).forEach(result::addMetaData);
+        return result;
+    }
+
+    /**
+     * Transform this {@link FeatureChange} into a pretty string. This will use the pretty strings
+     * for {@link CompleteEntity} classes. By default, this method will use
+     * {@link PrettifyStringFormat#MINIMAL_MULTI_LINE} for the {@link FeatureChange} itself, but
+     * will use {@link PrettifyStringFormat#MINIMAL_SINGLE_LINE} for the constituent
+     * {@link CompleteEntity}s.
+     *
+     * @return the pretty string
+     */
+    public String prettify()
+    {
+        return this.prettify(PrettifyStringFormat.MINIMAL_MULTI_LINE,
+                PrettifyStringFormat.MINIMAL_SINGLE_LINE);
+    }
+
+    /**
+     * Transform this {@link FeatureChange} into a pretty string. This will use the pretty strings
+     * for {@link CompleteEntity} classes. If you are unsure about which
+     * {@link PrettifyStringFormat}s to use, try {@link FeatureChange#prettify()} which has some
+     * sane defaults.
+     *
+     * @param format
+     *            the format type for the this {@link FeatureChange}
+     * @param completeEntityFormat
+     *            the format type for the constituent {@link CompleteEntity}s
+     * @return the pretty string
+     */
+    public String prettify(final PrettifyStringFormat format,
+            final PrettifyStringFormat completeEntityFormat)
+    {
+        String separator = "";
+        if (format == PrettifyStringFormat.MINIMAL_SINGLE_LINE)
+        {
+            separator = "";
+        }
+        else if (format == PrettifyStringFormat.MINIMAL_MULTI_LINE)
+        {
+            separator = "\n";
+        }
+        final StringBuilder builder = new StringBuilder();
+
+        builder.append(this.getClass().getSimpleName() + " ");
+        builder.append("[");
+        builder.append(separator);
+        builder.append("changeType: " + this.getChangeType() + ", ");
+        builder.append(separator);
+        builder.append("itemType: " + this.getItemType() + ", ");
+        builder.append(separator);
+        builder.append("identifier: " + this.getIdentifier() + ", ");
+        builder.append(separator);
+        builder.append("bounds: " + this.bounds() + ", ");
+        builder.append(separator);
+        if (this.beforeView != null)
+        {
+            builder.append("bfView: "
+                    + ((CompleteEntity<?>) this.beforeView).prettify(completeEntityFormat) + ", ");
+            builder.append(separator);
+        }
+        builder.append("afView: "
+                + ((CompleteEntity<?>) this.afterView).prettify(completeEntityFormat) + ", ");
+        builder.append(separator);
+        builder.append("metadata: " + this.metaData);
+        builder.append(separator);
+        builder.append("]");
+
+        return builder.toString();
     }
 
     /**
@@ -459,20 +582,40 @@ public class FeatureChange implements Located, Serializable
      */
     public void save(final WritableResource resource)
     {
-        new FeatureChangeGeoJsonSerializer().accept(this, resource);
+        new FeatureChangeGeoJsonSerializer(true).accept(this, resource);
     }
 
     public String toGeoJson()
     {
-        return new FeatureChangeGeoJsonSerializer().convert(this);
+        return new FeatureChangeGeoJsonSerializer(false).convert(this);
+    }
+
+    public String toPrettyGeoJson()
+    {
+        return new FeatureChangeGeoJsonSerializer(true).convert(this);
     }
 
     @Override
     public String toString()
     {
-        return "FeatureChange [changeType=" + this.changeType + ", reference={"
-                + this.afterView.getType() + "," + this.afterView.getIdentifier() + "}, tags="
-                + getTags() + ", bounds=" + bounds() + "]";
+        return "FeatureChange [changeType: " + this.changeType + ", reference: {"
+                + this.afterView.getType() + "," + this.afterView.getIdentifier() + "}, tags: "
+                + getTags() + ", bounds: " + bounds() + "]";
+    }
+
+    /**
+     * Specify the Atlas on which this {@link FeatureChange} is based. {@link FeatureChange} objects
+     * with a contextual Atlas are able to calculate their before view, and so are able to leverage
+     * richer and more robust merging mechanics.
+     *
+     * @param atlas
+     *            the contextual atlas
+     * @return the updated {@link FeatureChange}
+     */
+    public FeatureChange withAtlasContext(final Atlas atlas)
+    {
+        computeBeforeViewUsingAtlasContext(atlas, this.changeType);
+        return this;
     }
 
     /**

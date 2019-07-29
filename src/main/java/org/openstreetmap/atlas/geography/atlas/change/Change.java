@@ -17,6 +17,9 @@ import org.openstreetmap.atlas.geography.Located;
 import org.openstreetmap.atlas.geography.Rectangle;
 import org.openstreetmap.atlas.geography.atlas.Atlas;
 import org.openstreetmap.atlas.geography.atlas.change.serializer.ChangeGeoJsonSerializer;
+import org.openstreetmap.atlas.geography.atlas.change.serializer.FeatureChangeGeoJsonSerializer;
+import org.openstreetmap.atlas.geography.atlas.complete.CompleteEntity;
+import org.openstreetmap.atlas.geography.atlas.complete.PrettifyStringFormat;
 import org.openstreetmap.atlas.geography.atlas.items.ItemType;
 import org.openstreetmap.atlas.streaming.resource.WritableResource;
 import org.openstreetmap.atlas.utilities.collections.StringList;
@@ -30,6 +33,7 @@ import org.slf4j.LoggerFactory;
  * It contains a collection of {@link FeatureChange} objects, which describe the changes.
  *
  * @author matthieun
+ * @author Yazad Khambata
  */
 public class Change implements Located, Serializable
 {
@@ -38,7 +42,7 @@ public class Change implements Located, Serializable
     private static final AtomicInteger CHANGE_IDENTIFIER_FACTORY = new AtomicInteger();
 
     private final List<FeatureChange> featureChanges;
-    private final Map<Tuple<ItemType, Long>, Integer> identifierToIndex;
+    private final Map<AtlasEntityKey, Integer> identifierToIndex;
     private final int identifier;
     private Rectangle bounds;
     private String name;
@@ -76,9 +80,12 @@ public class Change implements Located, Serializable
         this.identifier = CHANGE_IDENTIFIER_FACTORY.getAndIncrement();
     }
 
-    List<FeatureChange> getFeatureChanges()
+    public Map<AtlasEntityKey, FeatureChange> allChangesMappedByAtlasEntityKey()
     {
-        return this.featureChanges;
+        return changes()
+                .map(featureChange -> Tuple.createTuple(AtlasEntityKey.from(featureChange),
+                        featureChange))
+                .collect(Collectors.toMap(Tuple::getFirst, Tuple::getSecond));
     }
 
     @Override
@@ -94,7 +101,7 @@ public class Change implements Located, Serializable
 
     public Optional<FeatureChange> changeFor(final ItemType itemType, final Long identifier)
     {
-        final Tuple<ItemType, Long> key = new Tuple<>(itemType, identifier);
+        final AtlasEntityKey key = AtlasEntityKey.from(itemType, identifier);
         if (!this.identifierToIndex.containsKey(key))
         {
             return Optional.empty();
@@ -173,6 +180,34 @@ public class Change implements Located, Serializable
     }
 
     /**
+     * Transform this {@link Change} into a pretty string. This will use the pretty strings for
+     * {@link CompleteEntity} classes that make up this {@link Change}'s constituent
+     * {@link FeatureChange}s.
+     *
+     * @param featureChangeFormat
+     *            the format type for the the constituent {@link FeatureChange}s
+     * @param completeEntityFormat
+     *            the format type for the constituent {@link CompleteEntity}s
+     * @return the pretty string
+     */
+    public String prettify(final PrettifyStringFormat featureChangeFormat,
+            final PrettifyStringFormat completeEntityFormat)
+    {
+        final StringBuilder builder = new StringBuilder();
+
+        builder.append(this.getClass().getSimpleName() + " [");
+        builder.append("\n");
+        for (final FeatureChange featureChange : this.featureChanges)
+        {
+            builder.append(featureChange.prettify(featureChangeFormat, completeEntityFormat));
+            builder.append("\n");
+        }
+        builder.append("]");
+
+        return builder.toString();
+    }
+
+    /**
      * Save a JSON representation of that feature change.
      *
      * @param resource
@@ -186,6 +221,18 @@ public class Change implements Located, Serializable
     public String toJson()
     {
         return new ChangeGeoJsonSerializer().convert(this);
+    }
+
+    public String toLineDelimitedFeatureChanges()
+    {
+        final StringBuilder builder = new StringBuilder();
+        final FeatureChangeGeoJsonSerializer serializer = new FeatureChangeGeoJsonSerializer(false);
+
+        for (final FeatureChange featureChange : this.featureChanges)
+        {
+            builder.append(serializer.apply(featureChange) + "\n");
+        }
+        return builder.toString();
     }
 
     @Override
@@ -214,8 +261,9 @@ public class Change implements Located, Serializable
     protected Change add(final FeatureChange featureChange)
     {
         final int currentIndex = this.featureChanges.size();
-        final Tuple<ItemType, Long> key = new Tuple<>(featureChange.getItemType(),
+        final AtlasEntityKey key = AtlasEntityKey.from(featureChange.getItemType(),
                 featureChange.getIdentifier());
+
         FeatureChange chosen = featureChange;
         if (!this.identifierToIndex.containsKey(key))
         {
@@ -249,5 +297,10 @@ public class Change implements Located, Serializable
     {
         Arrays.stream(featureChanges).forEach(this::add);
         return this;
+    }
+
+    List<FeatureChange> getFeatureChanges()
+    {
+        return this.featureChanges;
     }
 }
